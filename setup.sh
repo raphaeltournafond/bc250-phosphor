@@ -139,12 +139,9 @@ mkdir -p "$HOME/mangologs"  # where the MangoHud launch option below writes the 
 
 # --- 6. start at boot -------------------------------------------------------------------------------------------------------
 if [[ "$AUTOSTART" == 1 ]]; then
-  if systemctl --user cat "$SERVICE" >/dev/null 2>&1; then
-    systemctl --user restart "$SERVICE" && say "Monitor restarted with the new version"
-  else
-    say "Setting up the monitor to start at boot"
-    bash "$SRC/install_autostart.sh" "$APP" || warn "Autostart not set up (see above); the theme is installed anyway."
-  fi
+  # always rewritten: the app folder or Python may have moved since the service was created
+  say "Setting up the monitor to start at boot"
+  bash "$SRC/install_autostart.sh" "$APP" || warn "Autostart not set up (see above); the theme is installed anyway."
 fi
 
 restarts() { systemctl --user show -p NRestarts --value "$SERVICE" 2>/dev/null || echo 0; }

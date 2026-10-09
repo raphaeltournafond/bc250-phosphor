@@ -78,7 +78,8 @@ EOF
 echo "Wrote $UNIT (Python: $PYTHON)"
 
 systemctl --user daemon-reload
-systemctl --user enable --now "$SERVICE"
+systemctl --user enable "$SERVICE"
+systemctl --user restart "$SERVICE"  # picks up a changed folder, Python or theme even if it was already running
 echo "Service enabled and started."
 
 if loginctl enable-linger "$(id -un)" 2>/dev/null; then
