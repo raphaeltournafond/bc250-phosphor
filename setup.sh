@@ -147,9 +147,24 @@ if [[ "$AUTOSTART" == 1 ]]; then
   fi
 fi
 
+restarts() { systemctl --user show -p NRestarts --value "$SERVICE" 2>/dev/null || echo 0; }
+RESTARTS_BEFORE="$(restarts)"
+
 # --- 7. health check --------------------------------------------------------------------------------------------------------
 say "Checking every data source"
 (cd "$APP" && "$PYTHON" bc250_check.py) || warn "The check could not run completely (see above)."
+
+# --- 8. make sure the monitor really runs: a crash-looping service still looks "enabled" but leaves the screen dark ---
+if [[ "$AUTOSTART" == 1 ]] && systemctl --user cat "$SERVICE" >/dev/null 2>&1; then
+  sleep 5  # the check above already took several seconds
+  if systemctl --user is-active --quiet "$SERVICE" && [[ "$(restarts)" == "$RESTARTS_BEFORE" ]]; then
+    say "Monitor is running"
+  else
+    warn "The monitor does not stay running. Its last log lines:"
+    journalctl --user -u "$SERVICE" -n 40 --no-pager -o cat >&2 || true
+    fail "The monitor failed to start (log above). Fix it, or send the log, then run setup again."
+  fi
+fi
 
 cat <<EOF
 
