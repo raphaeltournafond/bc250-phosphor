@@ -156,6 +156,6 @@ cat <<EOF
 $(say "All set.")
   FPS in games: in Steam > game > Properties > Launch Options, paste
       MANGOHUD_CONFIG=fps_only,alpha=0,autostart_log=1,log_interval=1000,output_folder=~/mangologs mangohud %command%
-  Update later: copy the new bc250-phosphor folder over this one, then run  bash setup.sh  again.
+  Update later:  git -C "$SRC" pull && bash "$SRC/setup.sh"
   Log of the monitor:  journalctl --user -u $SERVICE -f
 EOF

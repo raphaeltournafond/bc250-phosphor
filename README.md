@@ -6,7 +6,11 @@ A retro green-phosphor terminal theme for [turing-smart-screen-python](https://g
 
 ## Quick start
 
-1. **Have the app.** Put this `bc250-phosphor` folder next to your `turing-smart-screen-python` folder (or keep the app at `~/turing-smart-screen-python…`). Don't have it yet?
+1. **Get the theme** in the folder that holds your `turing-smart-screen-python` folder (or in your home, if the app is at `~/turing-smart-screen-python…`):
+   ```bash
+   git clone https://github.com/raphaeltournafond/bc250-phosphor
+   ```
+   Don't have the app yet? Get it into your home folder first:
    ```bash
    git clone --depth 1 --branch 3.10.0 https://github.com/mathoudebine/turing-smart-screen-python ~/turing-smart-screen-python
    ```
@@ -23,7 +27,7 @@ That's it: the screen now starts with the boot animation every time the BC-250 b
 
 | To… | Run |
 |---|---|
-| update the theme | copy the new `bc250-phosphor` folder over the old one, then `bash bc250-phosphor/setup.sh` |
+| update the theme | `git -C bc250-phosphor pull && bash bc250-phosphor/setup.sh` |
 | change an option | `bash bc250-phosphor/setup.sh --night 23:30-08:00 --logo "MY RIG"` (remembered for next time) |
 | go back to the defaults | `bash bc250-phosphor/setup.sh --reset-options` |
 | remove it | `bash bc250-phosphor/setup.sh --uninstall` |
