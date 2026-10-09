@@ -1,0 +1,4 @@
+# Linux line endings everywhere: the scripts run on the BC-250, even when cloned on Windows
+* text=auto eol=lf
+*.png binary
+*.gif binary

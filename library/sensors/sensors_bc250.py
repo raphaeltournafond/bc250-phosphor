@@ -1,0 +1,1690 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# BC-250 custom sensors for turing-smart-screen-python (theme: BC250-Phosphor)
+#
+# The AMD BC-250 (Cyan Skillfish APU) does not expose gpu_busy_percent, and pyamdgpuinfo has no wheels for
+# Python > 3.12, so the stock GPU sensors are unreliable on it. These classes read amdgpu sysfs / procfs directly:
+#   - GPU clock       hwmon freq1_input, falling back to the active level of pp_dpm_sclk
+#   - GPU temperature hwmon temp1_input
+#   - GPU load        derived from per-process DRM fdinfo counters (drm-engine-gfx), the same source nvtop uses
+#   - GPU memory      mem_info_vram_used + mem_info_gtt_used (the BC-250 shares its 16 GB GDDR6)
+#   - APU power       hwmon power1_average / power1_input
+#   - Game disk       usage of the drive holding the Steam library ("/" is a read-only image on Bazzite/SteamOS)
+#
+# Some widgets are drawn by this module rather than by the app, from their own keys in theme.yaml:
+#   - Bc250CpuTemp / Bc250GpuTemp (HEAT_TEXT, HEAT_GRAPH, ALERT_TAG): temperature and 60 s history coloured from
+#     COLD_COLOR to HOT_COLOR between COLD and HOT, turning ALERT_COLOR and flashing "HOT!" from ALERT
+#   - Bc250Prompt (PROMPT): the bottom line. boot check, then the game being played (with MangoHud FPS and session
+#     time), a Steam download or shader pre-caching job with its progress / ETA, or the last session with its peak
+#     temperatures
+#   - Bc250ApuPower (HEAT_TEXT, HEAT_BAR): watts and bar on the same green -> orange -> red scale (COLD / HOT / ALERT)
+#   - boot splash (bc250_splash in theme.yaml): a BIOS-style POST with live values, played once before the
+#     dashboard is drawn (hooked onto the app's display_static_images, no change to the app itself)
+#   - Bc250Screen (SCREEN): dims the display after DIM_AFTER minutes without game or download, sleeps at NIGHT
+#
+# Every sensor degrades to "--" when its source is missing: a custom sensor that raises would stop all the
+# following custom sensors from refreshing (see stats.Custom.stats).
+#
+# Environment overrides: BC250_SYSFS_ROOT / BC250_PROC_ROOT (fake trees for testing), BC250_DISK_PATH (games drive),
+# BC250_MANGOHUD_DIR (MangoHud log folder).
+
+import datetime
+import glob
+import logging
+import math
+import os
+import re
+import sys
+import time
+from pathlib import Path
+from typing import List, Optional
+
+# Classes follow the CustomDataSource interface (as_numeric / as_string / last_values) without inheriting it:
+# sensors_custom.py re-exports this module, so importing it back here would be circular.
+
+SYSFS_ROOT = os.environ.get("BC250_SYSFS_ROOT", "/")
+PROC_ROOT = os.environ.get("BC250_PROC_ROOT", "/proc")
+REPO_DIR = Path(__file__).resolve().parents[2]
+
+HISTORY_SIZE = 60
+APU_POWER_BAR_MAX_W = 250
+
+logger = logging.getLogger(__name__)
+
+
+def _read(path: str) -> Optional[str]:
+    try:
+        with open(path, "r", errors="ignore") as f:
+            return f.read().strip()
+    except (OSError, ValueError):
+        return None
+
+
+def _read_int(path: Optional[str]) -> Optional[int]:
+    if path is None:
+        return None
+    value = _read(path)
+    try:
+        return int(value) if value is not None else None
+    except ValueError:
+        return None
+
+
+def _push(history: List[float], value: Optional[float]):
+    history.append(math.nan if value is None else value)
+    del history[:-HISTORY_SIZE]
+
+
+def _is_nan(value) -> bool:
+    return value is None or value != value
+
+
+def _duration(seconds: Optional[float]) -> str:
+    """Unambiguous short duration: 45s, 12m, 1h05."""
+    if seconds is None:
+        return "--"
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m"
+    if seconds >= 100 * 3600:
+        return ">99h"  # keeps every column within 5 characters
+    return f"{seconds // 3600}h{seconds // 60 % 60:02d}"
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Drawing helpers for the widgets this module renders itself
+# ---------------------------------------------------------------------------------------------------------------------
+class _Draw:
+    enabled = True  # bc250_check.py turns this off: reading sensors there must never talk to the screen
+    _fonts = {}
+    _backgrounds = {}
+    _failed = set()
+
+    @staticmethod
+    def theme(cls_name: str) -> dict:
+        from library import config
+        return config.THEME_DATA["STATS"]["CUSTOM"].get(cls_name, {}) or {}
+
+    @staticmethod
+    def color(value, default=(0, 0, 0)):
+        if value is None:
+            return default
+        if isinstance(value, str):
+            return tuple(int(c) for c in value.split(","))
+        return tuple(value)
+
+    @classmethod
+    def font(cls, name: str, size: int):
+        from PIL import ImageFont
+        key = (name, size)
+        if key not in cls._fonts:
+            cls._fonts[key] = ImageFont.truetype(str(REPO_DIR / "res" / "fonts" / name), size)
+        return cls._fonts[key]
+
+    @classmethod
+    def background_path(cls, name: str) -> str:
+        from library import config
+        return str(REPO_DIR / "res" / "themes" / config.CONFIG_DATA["config"]["THEME"] / name)
+
+    @classmethod
+    def background(cls, name: str):
+        from PIL import Image
+        if name not in cls._backgrounds:
+            cls._backgrounds[name] = Image.open(cls.background_path(name)).convert("RGB")
+        return cls._backgrounds[name]
+
+    @classmethod
+    def crop(cls, box: dict):
+        x, y = box["X"], box["Y"]
+        return cls.background(box.get("BACKGROUND_IMAGE", "background.png")).crop(
+            (x, y, x + box["WIDTH"], y + box["HEIGHT"]))
+
+    @classmethod
+    def show(cls, image, box: dict):
+        from library.display import display
+        display.lcd.DisplayPILImage(image, box["X"], box["Y"])
+
+    @classmethod
+    def safely(cls, what: str, fn, *args):
+        # A drawing error must not break the other custom sensors: log it once and carry on
+        if not cls.enabled:
+            return
+        try:
+            fn(*args)
+        except Exception as e:
+            if what not in cls._failed:
+                cls._failed.add(what)
+                logger.error("BC250: cannot draw %s: %s", what, e)
+
+
+def _lerp(a, b, t):
+    return tuple(round(x + (y - x) * t) for x, y in zip(a, b))
+
+
+def heat_color(value: float, spec: dict):
+    """COLD_COLOR up to COLD, fading to HOT_COLOR at HOT, then to ALERT_COLOR at ALERT."""
+    cold, hot = float(spec.get("COLD", 40)), float(spec.get("HOT", 70))
+    alert = float(spec.get("ALERT", 80))
+    cold_c = _Draw.color(spec.get("COLD_COLOR"), (125, 255, 165))
+    hot_c = _Draw.color(spec.get("HOT_COLOR"), (255, 140, 30))
+    alert_c = _Draw.color(spec.get("ALERT_COLOR"), (255, 60, 40))
+    if value >= hot and alert > hot:
+        return _lerp(hot_c, alert_c, min(1.0, (value - hot) / (alert - hot)))
+    t = 0.0 if hot <= cold else max(0.0, min(1.0, (value - cold) / (hot - cold)))
+    return _lerp(cold_c, hot_c, t)
+
+
+def _dim(color, k: float):
+    return tuple(int(c * k) for c in color)
+
+
+def draw_heat_text(spec: dict, box: dict, value: Optional[float], flash: bool, unit: str = "°C"):
+    from PIL import ImageDraw
+    image = _Draw.crop(box)
+    d = ImageDraw.Draw(image)
+    font = _Draw.font(box["FONT"], box["FONT_SIZE"])
+    text = f"--{unit}" if _is_nan(value) else f"{value:.0f}{unit}"
+    color = _dim(heat_color(0, spec), 0.6) if _is_nan(value) else heat_color(value, spec)
+    if flash:
+        # inverse video: the value punched out of a solid alert block
+        width = d.textlength(text, font=font)
+        d.rectangle((0, 0, width + 3, box["HEIGHT"] - 1), fill=_Draw.color(spec.get("ALERT_COLOR"), (255, 60, 40)))
+        color = _Draw.color(spec.get("INK"), (2, 14, 6))
+    d.text((1 if flash else 0, box.get("BASELINE", box["FONT_SIZE"] * 10 // 12)), text, font=font, fill=color,
+           anchor="ls")
+    _Draw.show(image, box)
+
+
+def draw_heat_bar(spec: dict, bar: dict, value: Optional[float]):
+    """Progress bar whose fill is a gradient along its length: each column takes the colour of the value it stands
+    for, so the tip of the bar always has the colour of the current value."""
+    from PIL import ImageDraw
+    image = _Draw.crop(bar)
+    if not _is_nan(value):
+        d = ImageDraw.Draw(image)
+        w, h = bar["WIDTH"], bar["HEIGHT"]
+        vmin, vmax = float(bar.get("MIN_VALUE", 0)), float(bar.get("MAX_VALUE", 100))
+        filled = round(w * max(0.0, min(1.0, (value - vmin) / (vmax - vmin))))
+        for px in range(filled):
+            d.line((px, 0, px, h - 1), fill=heat_color(vmin + (px + 0.5) * (vmax - vmin) / w, spec))
+    _Draw.show(image, bar)
+
+
+def draw_alert_tag(spec: dict, tag: dict, flash: bool):
+    from PIL import ImageDraw
+    image = _Draw.crop(tag)
+    if flash:
+        d = ImageDraw.Draw(image)
+        d.rectangle((0, 0, tag["WIDTH"] - 1, tag["HEIGHT"] - 1), fill=_Draw.color(spec.get("ALERT_COLOR")))
+        d.text((tag["WIDTH"] // 2, tag["HEIGHT"] - 3), "HOT!", font=_Draw.font(tag["FONT"], tag["FONT_SIZE"]),
+               fill=_Draw.color(spec.get("INK"), (2, 14, 6)), anchor="ms")
+    _Draw.show(image, tag)
+
+
+def draw_heat_graph(spec: dict, graph: dict, values: List[float]):
+    from PIL import ImageDraw
+
+    w, h = graph["WIDTH"], graph["HEIGHT"]
+    vmin, vmax = float(graph.get("MIN_VALUE", 30)), float(graph.get("MAX_VALUE", 90))
+    axis_c = _Draw.color(graph.get("AXIS_COLOR"), (46, 170, 88))
+    font = _Draw.font(graph["FONT"], graph.get("FONT_SIZE", 12))
+    image = _Draw.crop(graph)
+    d = ImageDraw.Draw(image)
+
+    def y_of(v):
+        v = max(vmin, min(vmax, v))
+        return (h - 2) - (v - vmin) * (h - 3) / (vmax - vmin)
+
+    # Samples are placed by their index in the history, so the chart scrolls in from the right
+    step = (w - 2) / max(1, len(values) - 1)
+    points = [(1 + i * step, y_of(v), v) for i, v in enumerate(values) if not _is_nan(v)]
+
+    # Area under the curve, drawn on every other screen row to match the background scanlines
+    for (x1, y1, v1), (x2, y2, v2) in zip(points, points[1:]):
+        for px in range(math.ceil(x1), math.floor(x2) + 1):
+            t = (px - x1) / (x2 - x1) if x2 > x1 else 0.0
+            top, value = y1 + (y2 - y1) * t, v1 + (v2 - v1) * t
+            fill = _dim(heat_color(value, spec), 0.32)
+            for py in range(math.ceil(top) + 1, h - 1):
+                if (graph["Y"] + py) % 2 == 0:
+                    image.putpixel((px, py), fill)
+
+    # COLD / HOT threshold guides over the area, labelled at the right end
+    for level_key, default in (("COLD", 40), ("HOT", 70)):
+        level = float(spec.get(level_key, default))
+        if vmin < level < vmax:
+            ly = round(y_of(level))
+            guide = _dim(heat_color(level, spec), 0.6)
+            for gx in range(2, w - 16, 4):
+                d.line((gx, ly, gx + 1, ly), fill=guide)
+            d.text((w - 2, ly), f"{level:.0f}", font=font, fill=guide, anchor="rm")
+
+    for (x1, y1, v1), (x2, y2, v2) in zip(points, points[1:]):
+        d.line((x1, y1, x2, y2), fill=heat_color((v1 + v2) / 2, spec), width=2)
+
+    d.line((0, 0, 0, h - 1), fill=axis_c)
+    d.line((0, h - 1, w - 1, h - 1), fill=axis_c)
+    d.text((3, 0), f"{vmax:.0f}", font=font, fill=axis_c, anchor="la")
+    _Draw.show(image, graph)
+
+
+class _TempWidget:
+    """Base for temperature sensors that draw HEAT_TEXT + HEAT_GRAPH (+ ALERT_TAG) from their theme.yaml entry."""
+    last_val: List[float] = []
+    value = None
+    _tick = 0
+    _tag_lit = False
+
+    def read(self) -> Optional[float]:
+        raise NotImplementedError
+
+    def as_numeric(self) -> float:
+        cls = type(self)
+        cls.value = self.read()
+        cls._tick += 1
+        _push(cls.last_val, cls.value)
+        spec = _Draw.theme(cls.__name__)
+        alert = not _is_nan(cls.value) and cls.value >= float(spec.get("ALERT", 80))
+        flash = alert and cls._tick % 2 == 0
+        if "HEAT_TEXT" in spec:
+            _Draw.safely(cls.__name__ + " text", draw_heat_text, spec, spec["HEAT_TEXT"], cls.value, flash)
+        if "HEAT_GRAPH" in spec:
+            _Draw.safely(cls.__name__ + " graph", draw_heat_graph, spec, spec["HEAT_GRAPH"], cls.last_val)
+        if "ALERT_TAG" in spec and (flash or cls._tag_lit):
+            # Only redrawn while alerting, plus once more to restore the normal tag
+            _Draw.safely(cls.__name__ + " tag", draw_alert_tag, spec, spec["ALERT_TAG"], flash)
+            cls._tag_lit = flash
+        return math.nan if cls.value is None else cls.value
+
+    def as_string(self) -> str:
+        return "--°C" if self.value is None else f"{self.value:.0f}°C"
+
+    def last_values(self) -> List[float]:
+        return type(self).last_val
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# GPU (amdgpu sysfs)
+# ---------------------------------------------------------------------------------------------------------------------
+class _AmdGpu:
+    """Locates the amdgpu device once and caches its sysfs paths."""
+    _searched = False
+    device: Optional[str] = None
+    hwmon: Optional[str] = None
+    pci_slot: Optional[str] = None
+
+    @classmethod
+    def find(cls):
+        if cls._searched:
+            return cls
+        cls._searched = True
+        for card in sorted(glob.glob(os.path.join(SYSFS_ROOT, "sys/class/drm/card[0-9]*"))):
+            if "-" in os.path.basename(card):  # connectors e.g. card0-HDMI-A-1
+                continue
+            device = os.path.join(card, "device")
+            if _read(os.path.join(device, "vendor")) != "0x1002":
+                continue
+            cls.device = device
+            hwmons = sorted(glob.glob(os.path.join(device, "hwmon", "hwmon*")))
+            cls.hwmon = hwmons[0] if hwmons else None
+            uevent = _read(os.path.join(device, "uevent")) or ""
+            match = re.search(r"PCI_SLOT_NAME=(\S+)", uevent)
+            cls.pci_slot = match.group(1) if match else None
+            break
+        return cls
+
+    @classmethod
+    def path(cls, *parts) -> Optional[str]:
+        cls.find()
+        return os.path.join(cls.device, *parts) if cls.device else None
+
+    @classmethod
+    def hwmon_path(cls, name) -> Optional[str]:
+        cls.find()
+        return os.path.join(cls.hwmon, name) if cls.hwmon else None
+
+
+def gpu_clock_mhz() -> Optional[float]:
+    hz = _read_int(_AmdGpu.hwmon_path("freq1_input"))
+    if hz:
+        return hz / 1_000_000
+    # pp_dpm_sclk lines look like "1: 2000Mhz *", the star marking the active level
+    for line in (_read(_AmdGpu.path("pp_dpm_sclk") or "") or "").splitlines():
+        match = re.search(r"(\d+)\s*Mhz\s*\*", line, re.IGNORECASE)
+        if match:
+            return float(match.group(1))
+    return None
+
+
+class Bc250GpuClock:
+    value = None
+
+    def as_numeric(self) -> float:
+        Bc250GpuClock.value = gpu_clock_mhz()
+        return math.nan if self.value is None else self.value
+
+    def as_string(self) -> str:
+        return "----" if self.value is None else f"{self.value:.0f}"
+
+    def last_values(self) -> List[float]:
+        pass
+
+
+class Bc250GpuTemp(_TempWidget):
+    last_val = [math.nan] * HISTORY_SIZE
+
+    def read(self) -> Optional[float]:
+        millideg = _read_int(_AmdGpu.hwmon_path("temp1_input"))
+        return millideg / 1000 if millideg is not None else None
+
+
+class Bc250GpuLoad:
+    # Sums the drm-engine-gfx busy time of every amdgpu DRM client and divides by wall time between two samples
+    _prev_clients = {}
+    _prev_time = None
+    _counters_seen = False
+    value = None
+
+    @staticmethod
+    def _sample() -> dict:
+        clients = {}
+        for pid in os.listdir(PROC_ROOT):
+            if not pid.isdigit():
+                continue
+            fd_dir = os.path.join(PROC_ROOT, pid, "fd")
+            try:
+                fds = os.listdir(fd_dir)
+            except OSError:
+                continue  # process gone or owned by another user
+            for fd in fds:
+                try:
+                    if not os.readlink(os.path.join(fd_dir, fd)).startswith("/dev/dri/"):
+                        continue
+                    with open(os.path.join(PROC_ROOT, pid, "fdinfo", fd), "r") as f:
+                        info = f.read()
+                except OSError:
+                    continue
+                if "amdgpu" not in info:
+                    continue
+                pdev = re.search(r"drm-pdev:\s*(\S+)", info)
+                if _AmdGpu.pci_slot and pdev and pdev.group(1) != _AmdGpu.pci_slot:
+                    continue
+                client = re.search(r"drm-client-id:\s*(\d+)", info)
+                gfx = re.search(r"drm-engine-gfx:\s*(\d+)\s*ns", info)
+                if client and gfx:
+                    # Several fds can share one client: keep a single entry per client id
+                    clients[client.group(1)] = int(gfx.group(1))
+        return clients
+
+    def as_numeric(self) -> float:
+        _AmdGpu.find()
+        now = time.monotonic()
+        try:
+            clients = self._sample()
+        except OSError:
+            clients = {}
+        prev, prev_time = Bc250GpuLoad._prev_clients, Bc250GpuLoad._prev_time
+        Bc250GpuLoad._prev_clients, Bc250GpuLoad._prev_time = clients, now
+
+        if clients:
+            Bc250GpuLoad._counters_seen = True
+        if prev_time is None or not (clients or Bc250GpuLoad._counters_seen):
+            # No sample yet, or engine counters never seen (old kernel / no permission): unknown rather than 0%
+            Bc250GpuLoad.value = None
+            return math.nan
+        busy_ns = sum(max(0, ns - prev[cid]) for cid, ns in clients.items() if cid in prev)
+        elapsed_ns = (now - prev_time) * 1e9
+        Bc250GpuLoad.value = max(0.0, min(100.0, busy_ns * 100 / elapsed_ns)) if elapsed_ns > 0 else None
+        return math.nan if self.value is None else self.value
+
+    def as_string(self) -> str:
+        return "--%" if self.value is None else f"{self.value:.0f}%"
+
+    def last_values(self) -> List[float]:
+        pass
+
+
+class Bc250GpuMem:
+    value = None
+
+    def as_numeric(self) -> float:
+        vram = _read_int(_AmdGpu.path("mem_info_vram_used"))
+        gtt = _read_int(_AmdGpu.path("mem_info_gtt_used"))
+        if vram is None and gtt is None:
+            Bc250GpuMem.value = None
+            return math.nan
+        Bc250GpuMem.value = ((vram or 0) + (gtt or 0)) / 1024 ** 3
+        return self.value
+
+    def as_string(self) -> str:
+        return "--G" if self.value is None else f"{self.value:.1f}G"
+
+    def last_values(self) -> List[float]:
+        pass
+
+
+class Bc250ApuPower:
+    value = None
+
+    def as_numeric(self) -> float:
+        microwatts = _read_int(_AmdGpu.hwmon_path("power1_average"))
+        if microwatts is None:
+            microwatts = _read_int(_AmdGpu.hwmon_path("power1_input"))
+        Bc250ApuPower.value = microwatts / 1_000_000 if microwatts is not None else None
+        spec = _Draw.theme("Bc250ApuPower")
+        if "HEAT_TEXT" in spec:
+            _Draw.safely("power text", draw_heat_text, spec, spec["HEAT_TEXT"], self.value, False, "W")
+        if "HEAT_BAR" in spec:
+            _Draw.safely("power bar", draw_heat_bar, spec, spec["HEAT_BAR"], self.value)
+        if self.value is None:
+            return math.nan
+        return max(0.0, min(float(APU_POWER_BAR_MAX_W), self.value))
+
+    def as_string(self) -> str:
+        return "--W" if self.value is None else f"{self.value:.0f}W"
+
+    def last_values(self) -> List[float]:
+        pass
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# CPU
+# ---------------------------------------------------------------------------------------------------------------------
+class Bc250CpuTemp(_TempWidget):
+    last_val = [math.nan] * HISTORY_SIZE
+
+    def read(self) -> Optional[float]:
+        try:
+            import psutil
+            temps = psutil.sensors_temperatures()
+        except (AttributeError, OSError):
+            return None
+        for chip in ("k10temp", "zenpower"):
+            entries = temps.get(chip) or []
+            # Tctl/Tdie is the package temperature; other entries are per-CCD
+            for entry in entries:
+                if entry.label in ("Tctl", "Tdie"):
+                    return entry.current
+            if entries:
+                return entries[0].current
+        return None
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Steam: libraries, running game, downloads, game disk
+# ---------------------------------------------------------------------------------------------------------------------
+class _Cache:
+    """Tiny time-based memo: value of fn() recomputed at most every ttl seconds."""
+
+    def __init__(self, ttl: float, fn):
+        self.ttl, self.fn, self.stamp, self.value = ttl, fn, -1e9, None
+
+    def get(self):
+        now = time.monotonic()
+        if now - self.stamp >= self.ttl:
+            self.value, self.stamp = self.fn(), now
+        return self.value
+
+
+def _find_steam_roots() -> List[str]:
+    homes = [os.path.expanduser("~")] + glob.glob("/home/*") + ["/root"]
+    roots = []
+    for home in homes:
+        for rel in (".local/share/Steam", ".steam/steam", ".var/app/com.valvesoftware.Steam/.local/share/Steam"):
+            path = os.path.realpath(os.path.join(home, rel))
+            if os.path.isdir(path) and path not in roots:
+                roots.append(path)
+    return roots
+
+
+def _find_steam_libraries() -> List[str]:
+    libraries = []
+    for root in _steam_roots():
+        vdf = _read(os.path.join(root, "steamapps", "libraryfolders.vdf")) or ""
+        for library in [root] + re.findall(r'"path"\s+"([^"]+)"', vdf):
+            library = os.path.realpath(library)
+            if library not in libraries and os.path.isdir(os.path.join(library, "steamapps")):
+                libraries.append(library)
+    return libraries
+
+
+_steam_roots_cache = _Cache(60, _find_steam_roots)
+_steam_libraries_cache = _Cache(30, _find_steam_libraries)
+
+
+def _steam_roots() -> List[str]:
+    return _steam_roots_cache.get()
+
+
+def _steam_libraries() -> List[str]:
+    return _steam_libraries_cache.get()
+
+
+def _acf_fields(text: str) -> dict:
+    return dict(re.findall(r'^\s*"(\w+)"\s+"([^"]*)"', text, re.MULTILINE))
+
+
+def _int(value) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+class _Procs:
+    """One /proc scan per refresh shared by every widget: [(pid, argv)]."""
+
+    @staticmethod
+    def _scan() -> List[tuple]:
+        procs = []
+        for pid in os.listdir(PROC_ROOT):
+            if not pid.isdigit():
+                continue
+            try:
+                with open(os.path.join(PROC_ROOT, pid, "cmdline"), "rb") as f:
+                    argv = [a.decode(errors="ignore") for a in f.read().split(b"\0") if a]
+            except OSError:
+                continue
+            if argv:
+                procs.append((pid, argv))
+        return procs
+
+    _cache = _Cache(0.5, None)
+
+    @classmethod
+    def all(cls) -> List[tuple]:
+        if cls._cache.fn is None:
+            cls._cache.fn = cls._scan
+        try:
+            return cls._cache.get() or []
+        except OSError:
+            return []
+
+
+class _Steam:
+    # Things Steam starts through its game launcher that are not games: Steamworks Common Redistributables and the
+    # Steam Linux Runtime containers. Install scripts (iscriptevaluator) run under the game's own AppId after an
+    # install or update, so they are recognised by their command line instead.
+    TOOL_APPS = {"228980", "1070560", "1391110", "1628350"}
+    NOT_A_GAME = ("iscriptevaluator", "installscript")
+    _names = {}
+
+    @classmethod
+    def app_name(cls, app_id: str) -> str:
+        if app_id in cls._names:
+            return cls._names[app_id]
+        name = None
+        for library in _steam_libraries():
+            manifest = _read(os.path.join(library, "steamapps", f"appmanifest_{app_id}.acf"))
+            name = _acf_fields(manifest or "").get("name")
+            if name:
+                break
+        if not name and _int(app_id) >= 2 ** 31:
+            name = "non-Steam game"  # shortcuts get a generated id with the high bit set
+        cls._names[app_id] = name or f"app {app_id}"
+        return cls._names[app_id]
+
+    @classmethod
+    def running_game(cls) -> Optional[tuple]:
+        """(app_id, pid) of the game Steam launched, if any: the newest `reaper SteamLaunch AppId=N -- ...`
+        process that is not a tool or an install script."""
+        best = None
+        for pid, argv in _Procs.all():
+            if "SteamLaunch" not in argv:  # exact argument, not a substring of some other command
+                continue
+            app_id = next((a[6:] for a in argv if a.startswith("AppId=") and a[6:].isdigit()), None)
+            if app_id is None or app_id in cls.TOOL_APPS:
+                continue
+            command = " ".join(argv).lower()
+            if any(word in command for word in cls.NOT_A_GAME):
+                continue
+            age = cls.seconds_running(pid)
+            if best is None or (age is not None and (best[2] is None or age < best[2])):
+                best = (app_id, pid, age)
+        return best[:2] if best else None
+
+    _game_cache = _Cache(0.5, None)
+
+    @classmethod
+    def current_game(cls) -> Optional[tuple]:
+        """running_game() cached for one refresh, as several widgets need it."""
+        if cls._game_cache.fn is None:
+            cls._game_cache.fn = cls.running_game
+        return cls._game_cache.get()
+
+    @staticmethod
+    def client_running() -> bool:
+        return any(os.path.basename(argv[0]) in ("steam", "steamwebhelper") for _, argv in _Procs.all())
+
+    @staticmethod
+    def seconds_running(pid: str) -> Optional[int]:
+        # Field 22 of /proc/<pid>/stat is the start time in clock ticks since boot
+        stat = _read(os.path.join(PROC_ROOT, pid, "stat"))
+        uptime = _read(os.path.join(PROC_ROOT, "uptime"))
+        if not stat or not uptime:
+            return None
+        try:
+            start_ticks = int(stat.rsplit(")", 1)[1].split()[19])
+            return max(0, int(float(uptime.split()[0]) - start_ticks / os.sysconf("SC_CLK_TCK")))
+        except (ValueError, IndexError, AttributeError, OSError):
+            return None
+
+
+def _network_rx() -> Optional[int]:
+    try:
+        import psutil
+        return sum(c.bytes_recv for nic, c in psutil.net_io_counters(pernic=True).items() if nic != "lo")
+    except Exception:
+        return None
+
+
+class _Downloads:
+    """Active Steam download / install / verification.
+
+    Whether one runs: logs/content_log.txt, which Steam appends to the moment an app changes state, e.g.
+        [2026-10-09 18:02:11] AppID 730 state changed : Update Required,Update Running,Update Started,
+        [2026-10-09 18:02:12] AppID 730 update changed : Running Update,Downloading,Staging,
+        [2026-10-09 18:09:40] AppID 730 finished update (took 449 seconds)
+    falling back to the appmanifest StateFlags (UpdateStarted 0x400 / UpdateRunning 0x100, UpdatePaused 0x200) for
+    apps the log tail does not mention. Nothing counts while the Steam client itself is not running.
+
+    Progress: appmanifest BytesDownloaded / BytesToDownload (BytesStaged / BytesToStage while installing). Steam only
+    rewrites them now and then, so between rewrites the download is advanced by the bytes received on the network."""
+    LOG_LINE = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\] AppID (\d+) (state changed|update changed|update started|"
+                          r"finished update|update canceled|scheduler finished)\b[ :]*(.*)$", re.MULTILINE)
+    BUSY_WORDS = ("Downloading", "Staging", "Committing", "Preallocating", "Verifying", "Validating", "Reconfiguring")
+    STARTED, RUNNING, PAUSED = 0x400, 0x100, 0x200
+
+    _manifests = _Cache(3, None)
+    _anchor = {}  # app_id -> (done bytes, network rx at that moment)
+    _counter = {}  # app_id -> (BytesDownloaded, monotonic time, bytes/s it advanced at)
+    _net = {"rx": None, "t": None, "bps": 0.0}
+    active: Optional[dict] = None
+
+    @staticmethod
+    def _read_manifests() -> dict:
+        manifests = {}
+        for library in _steam_libraries():
+            for path in glob.glob(os.path.join(library, "steamapps", "appmanifest_*.acf")):
+                fields = _acf_fields(_read(path) or "")
+                if fields.get("appid"):
+                    manifests[fields["appid"]] = fields
+        return manifests
+
+    @classmethod
+    def log_states(cls) -> dict:
+        """app_id -> {"busy", "phase", "stamp", "total"} from the tail of content_log.txt (latest line wins)."""
+        states = {}
+        for steam_root in _steam_roots():
+            path = os.path.join(steam_root, "logs", "content_log.txt")
+            try:
+                with open(path, "rb") as f:
+                    f.seek(max(0, os.path.getsize(path) - 65536))
+                    tail = f.read().decode(errors="ignore")
+            except OSError:
+                continue
+            for m in cls.LOG_LINE.finditer(tail):
+                stamp, app_id, event, rest = m.groups()
+                state = states.setdefault(app_id, {"busy": False, "phase": "downloading", "total": 0})
+                state["stamp"] = stamp
+                if event == "update started":
+                    state["busy"], state["phase"] = True, "downloading"
+                    total = re.search(r"download \d+/(\d+)", rest)
+                    state["total"] = int(total.group(1)) if total else 0
+                elif event == "update changed":
+                    if any(word in rest for word in cls.BUSY_WORDS):
+                        state["busy"] = True
+                        if "Verifying" in rest or "Validating" in rest:
+                            state["phase"] = "verifying"
+                        elif ("Committing" in rest or "Staging" in rest) and "Downloading" not in rest:
+                            state["phase"] = "installing"
+                        else:
+                            state["phase"] = "downloading"
+                elif event == "state changed":
+                    state["busy"] = ("Update Running" in rest or "Update Started" in rest) and "Paused" not in rest
+                else:  # finished update / update canceled / scheduler finished
+                    state["busy"] = False
+            break  # first Steam install with a log
+        return states
+
+    @classmethod
+    def _network_rate(cls) -> Optional[int]:
+        rx, now = _network_rx(), time.monotonic()
+        net = cls._net
+        if rx is not None and net["rx"] is not None and now > net["t"]:
+            instant = max(0, rx - net["rx"]) / (now - net["t"])
+            net["bps"] = instant if not net["bps"] else 0.6 * net["bps"] + 0.4 * instant
+        net["rx"], net["t"] = rx, now
+        return rx
+
+    @classmethod
+    def poll(cls) -> Optional[dict]:
+        rx = cls._network_rate()
+        if cls._manifests.fn is None:
+            cls._manifests.fn = cls._read_manifests
+        if not _Steam.client_running():
+            cls.active = None
+            return None
+        manifests = cls._manifests.get() or {}
+        logged = cls.log_states()
+
+        candidates = []
+        for app_id, state in logged.items():
+            if state["busy"]:
+                candidates.append((state["stamp"], app_id, state["phase"], state["total"]))
+        for app_id, fields in manifests.items():
+            flags = _int(fields.get("StateFlags"))
+            if app_id not in logged and flags & (cls.STARTED | cls.RUNNING) and not flags & cls.PAUSED:
+                candidates.append(("", app_id, "downloading", 0))
+        if not candidates:
+            cls._anchor.clear()
+            cls._counter.clear()
+            cls.active = None
+            return None
+        _, app_id, phase, log_total = max(candidates)  # most recent log activity first
+
+        fields = manifests.get(app_id, {})
+        to_download, downloaded = _int(fields.get("BytesToDownload")) or log_total, _int(fields.get("BytesDownloaded"))
+        to_stage, staged = _int(fields.get("BytesToStage")), _int(fields.get("BytesStaged"))
+        fraction, eta = None, None
+        if phase == "installing" and to_stage > 0:
+            fraction = staged / to_stage
+        elif phase == "downloading" and to_download > 0:
+            now = time.monotonic()
+            done, anchor_rx = cls._anchor.get(app_id, (downloaded, rx))
+            if downloaded > done or anchor_rx is None:  # Steam rewrote its counter: resynchronise on it
+                done, anchor_rx = downloaded, rx
+            cls._anchor[app_id] = (done, anchor_rx)
+            # how fast Steam's own counter advances, measured between its rewrites
+            last_value, last_time, counter_bps = cls._counter.get(app_id, (downloaded, now, 0.0))
+            if downloaded > last_value and now > last_time:
+                instant = (downloaded - last_value) / (now - last_time)
+                counter_bps = instant if not counter_bps else 0.6 * counter_bps + 0.4 * instant
+                last_value, last_time = downloaded, now
+            cls._counter[app_id] = (last_value, last_time, counter_bps)
+
+            estimate = done + (rx - anchor_rx if rx is not None and anchor_rx is not None else 0)
+            estimate = min(max(estimate, downloaded), int(to_download * 0.995))
+            fraction = estimate / to_download
+            # the network may carry other traffic and Steam's counter lags: trust whichever is faster
+            speed = max(cls._net["bps"], counter_bps)
+            if speed > 0:
+                eta = (to_download - estimate) / speed
+        cls.active = {"app_id": app_id, "name": fields.get("name") or _Steam.app_name(app_id), "phase": phase,
+                      "fraction": fraction, "eta": eta, "rate": cls._net["bps"]}
+        return cls.active
+
+
+class _Shaders:
+    """Steam shader pre-caching ("Processing Vulkan shaders"), done by fossilize_replay processes.
+
+    fossilize_replay reports progress to Steam through private shared memory; what is readable is the line Steam
+    appends to logs/shader_log.txt about every 10 s, e.g.
+        [2025-03-11 07:47:39] Still replaying 2683150 (73%, 26975/36488).
+    The percentage is shown as Steam reports it (it can disagree with done/total). A job whose percentage does not
+    move for STALL seconds is flagged: replays that never finish are a known Fossilize issue."""
+    POLL, FRESH, STALL = 3.0, 15.0, 120.0
+    LINE = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\] (?:Still replaying (\d+) \((\d+)%"
+                      r"|Starting processing job for app (\d+))", re.MULTILINE)
+    _last_poll = 0.0
+    _track = {}  # app_id -> {"pct", "changed": monotonic, "rate": %/s}
+    active: Optional[dict] = None
+
+    @staticmethod
+    def replaying_apps() -> List[Optional[str]]:
+        """App id of every running fossilize_replay (None when its command line has no shadercache path)."""
+        apps = []
+        for _, argv in _Procs.all():
+            if "fossilize_replay" in os.path.basename(argv[0]):
+                match = re.search(r"shadercache/(\d+)/", " ".join(argv))
+                apps.append(match.group(1) if match else None)
+        return apps
+
+    @staticmethod
+    def last_log_entry() -> Optional[tuple]:
+        """(age in seconds, app_id, percent or None) of the newest job line in shader_log.txt."""
+        for root in _steam_roots():
+            path = os.path.join(root, "logs", "shader_log.txt")
+            try:
+                with open(path, "rb") as f:
+                    f.seek(max(0, os.path.getsize(path) - 8192))
+                    tail = f.read().decode(errors="ignore")
+            except OSError:
+                continue
+            matches = list(_Shaders.LINE.finditer(tail))
+            if not matches:
+                continue
+            m = matches[-1]
+            stamp = datetime.datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
+            age = (datetime.datetime.now() - stamp).total_seconds()
+            if m.group(2):
+                return age, m.group(2), int(m.group(3))
+            return age, m.group(4), None
+        return None
+
+    @classmethod
+    def poll(cls) -> Optional[dict]:
+        now = time.monotonic()
+        if now - cls._last_poll < cls.POLL:
+            return cls.active
+        cls._last_poll = now
+        try:
+            apps = cls.replaying_apps()
+            entry = cls.last_log_entry()
+        except OSError:
+            apps, entry = [], None
+
+        fresh = entry is not None and entry[0] < cls.FRESH
+        if not apps and not fresh:
+            cls.active = None
+            return None
+        if entry is not None and (fresh or entry[1] in apps):
+            app_id, pct = entry[1], entry[2]
+        else:
+            app_id, pct = next((a for a in apps if a), None), None
+
+        eta, stalled = None, False
+        if pct is not None:
+            track = cls._track.setdefault(app_id, {"pct": pct, "changed": now, "rate": 0.0})
+            if pct > track["pct"]:
+                instant = (pct - track["pct"]) / max(now - track["changed"], 1.0)
+                track["rate"] = instant if not track["rate"] else 0.6 * track["rate"] + 0.4 * instant
+                track["pct"], track["changed"] = pct, now
+            elif pct < track["pct"]:  # a new pass over the same game
+                track.update(pct=pct, changed=now, rate=0.0)
+            stalled = now - track["changed"] > cls.STALL
+            eta = (100 - pct) / track["rate"] if track["rate"] > 0 else None
+        cls.active = {"name": _Steam.app_name(app_id) if app_id else "shaders", "app_id": app_id,
+                      "percent": pct, "eta": eta, "stalled": stalled}
+        return cls.active
+
+
+class _GameDisk:
+    _cache = (0.0, None)
+
+    @staticmethod
+    def path() -> str:
+        forced = os.environ.get("BC250_DISK_PATH")
+        if forced:
+            return forced
+        libraries = _steam_libraries()
+        if libraries:
+            return libraries[0]
+        return os.path.expanduser("~") if os.path.isdir(os.path.expanduser("~")) else "/"
+
+    @classmethod
+    def usage(cls):
+        stamp, usage = cls._cache
+        if time.monotonic() - stamp > 5:
+            try:
+                import psutil
+                usage = psutil.disk_usage(cls.path())
+            except (OSError, ImportError):
+                usage = None
+            cls._cache = (time.monotonic(), usage)
+        return usage
+
+
+class Bc250GameDisk:
+    # Used % of the drive that holds the Steam library
+    def as_numeric(self) -> float:
+        usage = _GameDisk.usage()
+        return math.nan if usage is None else usage.percent
+
+    def as_string(self) -> str:
+        usage = _GameDisk.usage()
+        return "--%" if usage is None else f"{usage.percent:.0f}%"
+
+    def last_values(self) -> List[float]:
+        pass
+
+
+class Bc250GameDiskFree:
+    def as_numeric(self) -> float:
+        pass
+
+    def as_string(self) -> str:
+        usage = _GameDisk.usage()
+        if usage is None:
+            return "-- G"
+        free_gb = usage.free / 1000 ** 3
+        return f"{free_gb / 1000:.1f} T" if free_gb >= 1000 else f"{free_gb:.0f} G"
+
+    def last_values(self) -> List[float]:
+        pass
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# MangoHud FPS
+# ---------------------------------------------------------------------------------------------------------------------
+class _MangoHud:
+    """Live FPS from the CSV log MangoHud writes (and flushes) while logging is on.
+
+    Needs in ~/.config/MangoHud/MangoHud.conf: autostart_log=1, log_interval=1000, output_folder=~/mangologs"""
+    FRESH = 5.0  # a log not written for this long belongs to a finished session
+    _dirs_cache = (0.0, [])
+    _fps_col = {}
+
+    @classmethod
+    def folders(cls) -> List[str]:
+        stamp, folders = cls._dirs_cache
+        if time.monotonic() - stamp < 30:
+            return folders
+        home = os.path.expanduser("~")
+        folders = [os.environ.get("BC250_MANGOHUD_DIR", "")]
+        for conf in (os.path.join(home, ".config", "MangoHud", "MangoHud.conf"),
+                     os.path.join(home, ".config", "MangoHud", "presets.conf")):
+            folders += re.findall(r"^\s*output_folder\s*=\s*(.+?)\s*$", _read(conf) or "", re.MULTILINE)
+        folders += [os.path.join(home, "mangologs"), home]
+        folders = [os.path.expandvars(os.path.expanduser(f)) for f in folders if f]
+        cls._dirs_cache = (time.monotonic(), list(dict.fromkeys(f for f in folders if os.path.isdir(f))))
+        return cls._dirs_cache[1]
+
+    @classmethod
+    def latest_log(cls) -> Optional[str]:
+        newest, newest_mtime = None, time.time() - cls.FRESH
+        for folder in cls.folders():
+            for path in glob.glob(os.path.join(folder, "*.csv")):
+                try:
+                    mtime = os.path.getmtime(path)
+                except OSError:
+                    continue
+                if mtime > newest_mtime:
+                    newest, newest_mtime = path, mtime
+        return newest
+
+    @classmethod
+    def fps(cls) -> Optional[float]:
+        path = cls.latest_log()
+        if not path:
+            return None
+        try:
+            if path not in cls._fps_col:
+                with open(path, "r", errors="ignore") as f:
+                    head = f.read(2048).splitlines()
+                header = next((line.split(",") for line in head if line.startswith("fps,")), None)
+                cls._fps_col[path] = header.index("fps") if header else None
+            col = cls._fps_col[path]
+            if col is None:
+                return None
+            with open(path, "rb") as f:
+                f.seek(max(0, os.path.getsize(path) - 1024))
+                lines = f.read().decode(errors="ignore").splitlines()
+            for line in reversed(lines[1:]):  # the first line of the tail may be cut
+                fields = line.split(",")
+                if len(fields) > col:
+                    try:
+                        return float(fields[col])
+                    except ValueError:
+                        continue
+        except OSError:
+            return None
+        return None
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Bottom prompt line: boot / playing / downloading / last session
+# ---------------------------------------------------------------------------------------------------------------------
+class _Session:
+    """The game being played, its peak temperatures, and the last finished session.
+
+    A session shorter than MIN_SECONDS is not remembered: launches that fail or quit at once leave no trace."""
+    MIN_SECONDS = 60
+    app_id = None
+    name = None
+    pid = None
+    seconds = None
+    peak_cpu = None
+    peak_gpu = None
+    last = None  # {"name", "seconds", "peak_cpu", "peak_gpu"} of the previous game
+
+    @classmethod
+    def update(cls, game):
+        if cls.app_id is not None and (game is None or game[0] != cls.app_id):
+            cls._finish()
+        if game is None:
+            return
+        if cls.app_id is None:
+            cls.app_id, cls.name = game[0], _Steam.app_name(game[0])
+            cls.peak_cpu = cls.peak_gpu = None
+        cls.pid = game[1]
+        cls.seconds = _Steam.seconds_running(game[1])
+        for attr, temp in (("peak_cpu", Bc250CpuTemp.value), ("peak_gpu", Bc250GpuTemp.value)):
+            if not _is_nan(temp):
+                setattr(cls, attr, max(getattr(cls, attr) or temp, temp))
+
+    @classmethod
+    def _finish(cls):
+        if (cls.seconds or 0) >= cls.MIN_SECONDS:
+            cls.last = {"name": cls.name, "seconds": cls.seconds, "peak_cpu": cls.peak_cpu, "peak_gpu": cls.peak_gpu}
+        cls.app_id = cls.name = cls.pid = cls.seconds = None
+
+
+def _attempt(what: str, fn, default=None):
+    """fn() or default: one failing data source must not freeze the whole prompt line."""
+    try:
+        return fn()
+    except Exception as e:
+        if what not in _Draw._failed:
+            _Draw._failed.add(what)
+            logger.error("BC250: %s failed: %s", what, e)
+        return default
+
+
+def _rate(bps: float) -> str:
+    for unit in ("B", "K", "M", "G"):
+        if bps < 1000 or unit == "G":
+            return f"{bps:.0f}{unit}/s" if unit == "B" else f"{bps:.1f}{unit}/s"
+        bps /= 1000
+    return "--"
+
+
+def _peaks(cpu, gpu) -> str:
+    fmt = lambda t: "--" if t is None else f"{t:.0f}"
+    return f"{fmt(cpu)}/{fmt(gpu)}°"
+
+
+class Bc250Prompt:
+    BOOT_TICKS = 4
+    _tick = 0
+
+    @staticmethod
+    def _state(tick: int) -> dict:
+        """What the prompt shows: cmd word, main text, two right columns (label, value), progress fraction."""
+        if tick <= Bc250Prompt.BOOT_TICKS:
+            gpu = _AmdGpu.find().device
+            lines = ["POST bc250 sensors..",
+                     "amdgpu " + ("ok" if gpu else "MISSING"),
+                     "steam  " + ("ok" if _steam_roots() else "MISSING"),
+                     "ready"]
+            return {"cmd": "boot", "text": lines[min(tick, len(lines)) - 1], "cols": [], "progress": None}
+
+        game = _attempt("game detection", _Steam.current_game)
+        _attempt("session", lambda: _Session.update(game))
+        # polled every refresh even while playing, so their rates and progress stay current
+        download = _attempt("downloads", _Downloads.poll)
+        shaders = _attempt("shaders", _Shaders.poll)
+
+        if game:
+            fps = _attempt("mangohud", _MangoHud.fps)
+            cols = [("FPS", f"{fps:.0f}")] if fps is not None else []
+            cols.append(("SESSION", _duration(_Session.seconds)))
+            return {"cmd": "now-playing", "text": _Session.name or _Steam.app_name(game[0]), "cols": cols,
+                    "progress": None}
+
+        if download:
+            fraction = download["fraction"]
+            if fraction is None:  # verifying, or no byte counts yet
+                cols = [("RATE", _rate(download["rate"]))] if download["rate"] > 1000 else []
+            else:
+                cols = [("DONE", f"{fraction * 100:.0f}%"), ("ETA", _duration(download["eta"]))]
+            return {"cmd": download["phase"], "text": download["name"], "cols": cols, "progress": fraction}
+
+        if shaders:
+            pct = shaders["percent"]
+            return {"cmd": "fossilize_replay", "text": shaders["name"],
+                    "cols": [("SHADERS", "--%" if pct is None else f"{pct}%"),
+                             ("ETA", "STALL" if shaders["stalled"] else _duration(shaders["eta"]))],
+                    "progress": None if pct is None else pct / 100, "accent": "AMBER",
+                    "alert_col": shaders["stalled"]}
+
+        last = _Session.last
+        if last:
+            return {"cmd": "last-session", "text": last["name"],
+                    "cols": [("TIME", _duration(last["seconds"])),
+                             ("PEAK C/G", _peaks(last["peak_cpu"], last["peak_gpu"]))],
+                    "progress": None}
+        return {"cmd": "now-playing", "text": "idle", "cols": [], "progress": None}
+
+    @staticmethod
+    def draw(spec: dict, state: dict, cursor: bool):
+        from PIL import ImageDraw
+        area = spec["AREA"]
+        image = _Draw.crop(area)
+        d = ImageDraw.Draw(image)
+        ox, oy = area["X"], area["Y"]
+        small, big = _Draw.font(spec["FONT"], 12), _Draw.font(spec["FONT"], 24)
+        bright, mid, dim = (_Draw.color(spec.get(k)) for k in ("BRIGHT", "MID", "DIM"))
+        accent = _Draw.color(spec.get(state.get("accent", "MID")), mid)
+        label_bl, value_bl = spec["LABEL_BL"] - oy, spec["VALUE_BL"] - oy
+
+        if state["progress"] is not None:
+            # progress bar filling the value row behind the text, on the bright scanlines
+            right = round(area["WIDTH"] * state["progress"])
+            for py in range(label_bl + 4, area["HEIGHT"] - 2):
+                if (oy + py) % 2 == 0:
+                    d.line((0, py, right, py), fill=_dim(accent, 0.45))
+            d.line((0, area["HEIGHT"] - 2, right, area["HEIGHT"] - 2), fill=accent)
+
+        d.text((spec["CMD_X"] - ox, label_bl), state["cmd"], font=small, fill=dim, anchor="ls")
+
+        # right columns, laid out from the right edge
+        right_edges = [spec["COL2_XR"] - ox, spec["COL1_XR"] - ox]
+        for i, ((label, value), xr) in enumerate(zip(reversed(state["cols"]), right_edges)):
+            d.text((xr, label_bl), label, font=small, fill=dim, anchor="rs")
+            warn = i == 0 and state.get("alert_col")  # e.g. a stalled shader job
+            d.text((xr, value_bl), value, font=big, fill=_Draw.color(spec.get("AMBER")) if warn else bright,
+                   anchor="rs")
+
+        room = spec["MAX_CHARS"] if len(state["cols"]) > 1 else spec["MAX_CHARS_WIDE"]
+        text = state["text"] or ""
+        if len(text) > room:
+            text = text[:room - 1] + "~"
+        d.text((spec["TEXT_X"] - ox, value_bl), text + ("_" if cursor else ""), font=big, fill=bright, anchor="ls")
+        _Draw.show(image, area)
+
+    def as_numeric(self) -> float:
+        Bc250Prompt._tick += 1
+        spec = _Draw.theme("Bc250Prompt")
+        state = _attempt("prompt state", lambda: self._state(Bc250Prompt._tick),
+                         {"cmd": "now-playing", "text": "idle", "cols": [], "progress": None})
+        if "AREA" in spec:
+            _Draw.safely("prompt", self.draw, spec, state, Bc250Prompt._tick % 2 == 0)
+        return math.nan
+
+    def as_string(self) -> str:
+        return " "
+
+    def last_values(self) -> List[float]:
+        pass
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Screen power: dim when idle, sleep at night
+# ---------------------------------------------------------------------------------------------------------------------
+def _in_window(now: datetime.time, window: str) -> bool:
+    """window like "23:30-08:00" (may wrap over midnight); empty means never."""
+    match = re.fullmatch(r"\s*(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s*", window or "")
+    if not match:
+        return False
+    h1, m1, h2, m2 = (int(g) for g in match.groups())
+    start, end = datetime.time(h1, m1), datetime.time(h2, m2)
+    return start <= now < end if start <= end else now >= start or now < end
+
+
+class Bc250Screen:
+    """Brightness manager, configured by SCREEN in theme.yaml:
+    DIM_AFTER (minutes without game or download, 0 = never), DIM_BRIGHTNESS (%), NIGHT ("HH:MM-HH:MM", "" = off),
+    NIGHT_MODE ("off" or "dim"). A running game always keeps the screen at full brightness."""
+    _mode = "on"
+    _last_activity = time.monotonic()
+
+    def as_numeric(self) -> float:
+        spec = _Draw.theme("Bc250Screen").get("SCREEN", {})
+        now = time.monotonic()
+        if _Steam.current_game() or _Downloads.active or _Shaders.active:
+            Bc250Screen._last_activity = now
+
+        mode = "on"
+        dim_after = float(spec.get("DIM_AFTER", 10) or 0)
+        if not _Steam.current_game():
+            if _in_window(datetime.datetime.now().time(), spec.get("NIGHT", "")):
+                # an unquoted `off` in YAML reads as False
+                mode = "dim" if str(spec.get("NIGHT_MODE", "off")).lower() == "dim" else "off"
+            elif dim_after and now - self._last_activity > dim_after * 60:
+                mode = "dim"
+        if mode != Bc250Screen._mode:
+            _Draw.safely("screen", self._apply, mode, spec)
+            Bc250Screen._mode = mode
+        return math.nan
+
+    @staticmethod
+    def _apply(mode: str, spec: dict):
+        from library import config
+        from library.display import display
+        if mode == "off":
+            display.lcd.ScreenOff()
+            return
+        if Bc250Screen._mode == "off":
+            display.lcd.ScreenOn()
+        full = int(config.CONFIG_DATA["display"].get("BRIGHTNESS", 20))
+        display.lcd.SetBrightness(int(spec.get("DIM_BRIGHTNESS", 5)) if mode == "dim" else full)
+
+    def as_string(self) -> str:
+        return " "
+
+    def last_values(self) -> List[float]:
+        pass
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Boot splash: CRT warm-up, BIOS screen, a POST of real values, loading bar, then the dashboard
+# ---------------------------------------------------------------------------------------------------------------------
+class _Logo3D:
+    """BC-250 as an extruded 3D logo, rendered with a real perspective projection into the splash's logo box.
+
+    The logo is a flat text mask placed in 3D and extruded backwards in DEPTH layers; each layer is projected with a
+    homography (PIL's PERSPECTIVE transform), drawn far-to-near: dim back face, darker sides, bright front face with a
+    sweeping glint, then bloom and scanlines to match the CRT look."""
+    DEPTH, LAYERS, CAMERA = 14, 8, 620.0
+
+    def __init__(self, spec: dict):
+        from PIL import Image, ImageDraw
+        x, y, w, h = (int(v) for v in spec["LOGO_BOX"])
+        self.x, self.y, self.w, self.h = x, y, w, h
+        self.bg = _Draw.background(spec.get("IMAGE_NOLOGO", "splash_nologo.png")).crop((x, y, x + w, y + h))
+        font = _Draw.font(spec["FONT"], int(spec.get("LOGO_SIZE", 72)))
+        text = spec.get("LOGO_TEXT", "BC-250")
+        left, top, right, bottom = font.getbbox(text)
+        self.mask = Image.new("L", (right - left + 8, bottom - top + 8), 0)
+        ImageDraw.Draw(self.mask).text((4 - left, 4 - top), text, font=font, fill=255)
+        size = int(spec.get("LOGO_SIZE", 72))
+        screen_w = _Draw.background(spec.get("IMAGE", "splash.png")).width
+        # where the flat logo sits: centred horizontally, glyph middle half a cap height above the baseline
+        self.cx = screen_w / 2 - x
+        self.cy = int(spec.get("LOGO_BL", 84)) - size * 8 / 12 / 2 - y
+        self.bright = _Draw.color(spec.get("BRIGHT"))
+        self.mid = _Draw.color(spec.get("MID"))
+        self.dim = _Draw.color(spec.get("DIM"))
+        # scanlines in screen space: odd rows darker, as in the background art
+        self.scan = Image.new("RGB", (w, h), (255, 255, 255))
+        draw = ImageDraw.Draw(self.scan)
+        for row in range(h):
+            if (y + row) % 2:
+                draw.line((0, row, w, row), fill=(199, 199, 199))
+        self.t0 = time.monotonic()
+
+    def _project(self, px, py, pz, yaw, pitch):
+        # object space (centred on the logo), rotated by yaw (Y axis) then pitch (X axis), then perspective
+        cy_, sy_ = math.cos(yaw), math.sin(yaw)
+        cp, sp = math.cos(pitch), math.sin(pitch)
+        x1, z1 = px * cy_ + pz * sy_, -px * sy_ + pz * cy_
+        y2, z2 = py * cp - z1 * sp, py * sp + z1 * cp
+        k = self.CAMERA / (self.CAMERA + z2)
+        return self.cx + x1 * k, self.cy + y2 * k, z2
+
+    def _layer(self, depth, yaw, pitch):
+        """The logo mask projected at a given depth: (L image in box space, distance of its centre)."""
+        import numpy
+        from PIL import Image
+        mw, mh = self.mask.size
+        corners = [(0, 0), (mw, 0), (mw, mh), (0, mh)]
+        projected = [self._project(u - mw / 2, v - mh / 2, depth, yaw, pitch) for u, v in corners]
+        # PIL wants the output -> input mapping: solve the homography from the 4 corner pairs
+        rows, rhs = [], []
+        for (sx, sy, _), (u, v) in zip(projected, corners):
+            rows.append([sx, sy, 1, 0, 0, 0, -u * sx, -u * sy]); rhs.append(u)
+            rows.append([0, 0, 0, sx, sy, 1, -v * sx, -v * sy]); rhs.append(v)
+        distance = self._project(0, 0, depth, yaw, pitch)[2]
+        try:
+            coeffs = numpy.linalg.solve(numpy.array(rows, dtype=float), numpy.array(rhs, dtype=float))
+        except numpy.linalg.LinAlgError:  # edge-on (90 degrees): nothing visible for this layer
+            return Image.new("L", (self.w, self.h), 0), distance
+        layer = self.mask.transform((self.w, self.h), Image.PERSPECTIVE, tuple(coeffs), Image.BILINEAR)
+        return layer, distance
+
+    def frame(self, yaw: float, pitch: float, glint: float, glow: float = 0.45, glint_strength: int = 150,
+              glint_width: int = 26):
+        from PIL import Image, ImageChops, ImageDraw, ImageFilter
+        canvas = self.bg.copy()
+        layers = []
+        for i in range(self.LAYERS + 1):
+            depth = self.DEPTH * i / self.LAYERS
+            mask, distance = self._layer(depth, yaw, pitch)
+            if i == 0:
+                color = None  # front face, drawn with its own texture below
+            elif i == self.LAYERS:
+                color = _dim(self.mid, 0.55)  # back face
+            else:
+                color = _dim(self.mid, 0.30 + 0.25 * (1 - i / self.LAYERS))  # extrusion sides, darker deeper
+            layers.append((distance, i, mask, color))
+        front_mask = None
+        for distance, i, mask, color in sorted(layers, key=lambda layer: -layer[0]):  # far to near
+            if color is None:
+                front_mask = mask
+                face = Image.new("RGB", (self.w, self.h), self.bright)
+                # glint: a slanted band of light sweeping across the front face
+                light = Image.new("L", (self.w, self.h), 0)
+                gx = glint * (self.w + 120) - 60
+                ImageDraw.Draw(light).polygon([(gx, 0), (gx + glint_width, 0), (gx + glint_width - 20, self.h),
+                                               (gx - 20, self.h)], fill=glint_strength)
+                face = Image.composite(Image.new("RGB", (self.w, self.h), (235, 255, 240)), face,
+                                       light.filter(ImageFilter.GaussianBlur(5)))
+                canvas.paste(face, (0, 0), mask)
+            else:
+                canvas.paste(color, (0, 0, self.w, self.h), mask)
+        if front_mask is not None:
+            glow_level = glow
+            glow_image = Image.new("RGB", (self.w, self.h), (0, 0, 0))
+            glow_image.paste(self.bright, (0, 0, self.w, self.h), front_mask)
+            canvas = ImageChops.add(canvas, glow_image.filter(ImageFilter.GaussianBlur(4))
+                                    .point(lambda v: min(255, int(v * glow_level))))
+        return ImageChops.multiply(canvas, self.scan)
+
+    def sway(self, lcd):
+        """One frame of the idle animation: a slow 3D sway with a periodic glint."""
+        t = time.monotonic() - self.t0
+        yaw = math.radians(24) * math.sin(2 * math.pi * t / 3.4)
+        pitch = math.radians(10) + math.radians(4) * math.sin(2 * math.pi * t / 2.3)
+        self.pose = (yaw, pitch)
+        lcd.DisplayPILImage(self.frame(yaw, pitch, (t / 1.7) % 1.6), self.x, self.y)
+
+    def ignite(self, lcd, flare_level=None):
+        """Finale, readable all along: ease to face the viewer, a strong light sweep across the letters, then a
+        bloom flare (with a short backlight pulse when flare_level is given) settling to the steady glow."""
+        yaw0, pitch0 = getattr(self, "pose", (0.0, math.radians(10)))
+
+        def run(seconds, draw):
+            start = time.monotonic()
+            while True:
+                t = min(1.0, (time.monotonic() - start) / seconds)
+                draw(t)
+                _Splash._wait(0.03)
+                if t >= 1.0:
+                    return
+
+        # 1. settle: from the current sway pose to flat, easing out
+        run(0.4, lambda t: lcd.DisplayPILImage(
+            self.frame(yaw0 * (1 - t) ** 3, pitch0 * (1 - t) ** 3, 2.0), self.x, self.y))
+        # 2. light sweep across the face
+        run(0.5, lambda t: lcd.DisplayPILImage(
+            self.frame(0.0, 0.0, -0.1 + 1.2 * t, glint_strength=235, glint_width=46), self.x, self.y))
+
+        # 3. flare: bloom up and back down, the backlight pulsing at the peak
+        pulsed = {"up": False, "down": False}
+
+        def flare(t):
+            if flare_level and not pulsed["up"] and t > 0.2:
+                lcd.SetBrightness(min(100, round(flare_level * 1.3)))
+                pulsed["up"] = True
+            if flare_level and pulsed["up"] and not pulsed["down"] and t > 0.6:
+                lcd.SetBrightness(flare_level)
+                pulsed["down"] = True
+            lcd.DisplayPILImage(self.frame(0.0, 0.0, 2.0, glow=0.45 + 0.95 * math.sin(math.pi * t)), self.x, self.y)
+
+        run(0.45, flare)
+        if flare_level and not pulsed["down"]:
+            lcd.SetBrightness(flare_level)
+
+
+class _Splash:
+    STEP = 0.28  # seconds per POST line
+
+    @staticmethod
+    def post_lines(spec: dict) -> List[tuple]:
+        """(label, value, status) from the live system; status is OK / WARN / WAIT / HOT!"""
+        import psutil
+        lines = []
+
+        def add(label, fn):
+            lines.append((label,) + _attempt("splash " + label, fn, ("unavailable", "WARN")))
+
+        def cpu():
+            freq = psutil.cpu_freq()
+            top = f" @ {freq.max / 1000:.2f} GHz" if freq and freq.max else ""
+            return (f"AMD BC-250 Zen 2 {psutil.cpu_count(False) or '?'}C/{psutil.cpu_count() or '?'}T{top}", "OK")
+
+        def memory():
+            return (f"{psutil.virtual_memory().total / 1024 ** 3:.1f} GiB system, GDDR6 shared", "OK")
+
+        def gpu():
+            if not _AmdGpu.find().device:
+                return ("amdgpu not found", "WARN")
+            levels = [int(m) for m in re.findall(r"(\d+)\s*Mhz", _read(_AmdGpu.path("pp_dpm_sclk") or "") or "",
+                                                 re.IGNORECASE)]
+            top = f" up to {max(levels)} MHz" if levels else ""
+            return (f"RDNA2 24CU {os.path.basename(os.path.dirname(_AmdGpu.device))}{top}", "OK")
+
+        def temps():
+            cpu_t, gpu_t = Bc250CpuTemp().read(), Bc250GpuTemp().read()
+            if cpu_t is None and gpu_t is None:
+                return ("no sensor", "WARN")
+            fmt = lambda t: "--" if t is None else f"{t:.0f}°C"
+            hot = max(t for t in (cpu_t, gpu_t) if t is not None) >= float(spec.get("ALERT", 80))
+            return (f"CPU {fmt(cpu_t)}  GPU {fmt(gpu_t)}", "HOT!" if hot else "OK")
+
+        def storage():
+            usage = _GameDisk.usage()
+            if usage is None:
+                return ("Steam library not found", "WARN")
+            free = usage.free / 1000 ** 3
+            return (f"Steam library {free:.0f} GB free ({usage.percent:.0f}% used)", "OK" if free > 50 else "WARN")
+
+        def network():
+            import socket
+            stats, addrs = psutil.net_if_stats(), psutil.net_if_addrs()
+            for nic, st in stats.items():
+                if st.isup and nic != "lo" and not nic.startswith(("docker", "veth", "br-", "virbr")):
+                    ipv4 = next((a.address for a in addrs.get(nic, []) if a.family == socket.AF_INET), None)
+                    if ipv4:
+                        return (f"{nic} {ipv4}", "OK")
+            return ("offline", "WAIT")
+
+        def steam():
+            if _Steam.client_running():
+                return ("client running", "OK")
+            return ("client not started yet", "WAIT") if _steam_roots() else ("not installed", "WARN")
+
+        for label, fn in (("CPU", cpu), ("MEMORY", memory), ("GPU", gpu), ("TEMPS", temps),
+                          ("STORAGE", storage), ("NETWORK", network), ("STEAM", steam)):
+            add(label, fn)
+        return lines[:int(spec.get("ROWS", 7))]
+
+    @staticmethod
+    def _wait(seconds: float):
+        """Let the app's send queue drain before pacing, so the animation runs at screen speed."""
+        from library import config
+        queue = getattr(config, "update_queue", None)
+        deadline = time.monotonic() + 3
+        while queue is not None and not queue.empty() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        time.sleep(seconds)
+
+    @classmethod
+    def _run(cls, seconds: float, tick=None):
+        """Wait `seconds`, calling tick() (one animation frame) as often as the screen link allows meanwhile."""
+        if tick is None:
+            cls._wait(seconds)
+            return
+        end = time.monotonic() + seconds
+        while True:
+            _attempt("splash animation", tick)
+            cls._wait(0.03)  # drains the send queue first, so frames go at screen speed
+            if time.monotonic() >= end:
+                break
+
+    @staticmethod
+    def _snow(size, bright, bg, gain=1.0):
+        """No-signal raster: phosphor noise on lit scanlines, as a CRT shows before it locks onto a picture."""
+        from PIL import Image, ImageChops, ImageDraw
+        w, h = size
+        noise = Image.effect_noise((w, h), 64).point(lambda v: min(255, int(max(0, v - 120) * 2 * gain)))
+        lines = Image.new("L", (w, h), 0)
+        d = ImageDraw.Draw(lines)
+        for y in range(0, h, 2):
+            d.line((0, y, w, y), fill=int(26 * gain))
+        mask = ImageChops.add(noise, lines)
+        return Image.composite(Image.new("RGB", (w, h), bright), Image.new("RGB", (w, h), bg), mask)
+
+    @staticmethod
+    def _unfocused(base, bg):
+        """The picture as it first locks: out of focus, over-bright and a little small (high voltage still low)."""
+        from PIL import Image, ImageChops, ImageEnhance, ImageFilter
+        w, h = base.size
+        soft = ImageEnhance.Brightness(base.filter(ImageFilter.GaussianBlur(2.4))).enhance(1.35)
+        soft = ImageChops.add(soft, base.filter(ImageFilter.GaussianBlur(7)).point(lambda v: v // 2))
+        small = soft.resize((round(w * 0.94), round(h * 0.94)), Image.BILINEAR)
+        frame = Image.new("RGB", (w, h), bg)
+        frame.paste(small, ((w - small.width) // 2, (h - small.height) // 2))
+        return frame
+
+    @classmethod
+    def warm_up(cls, lcd, base, bright, bg):
+        from library import config
+        from PIL import Image, ImageDraw
+        import random
+        target = max(1, min(100, int(config.CONFIG_DATA["display"].get("BRIGHTNESS", 20))))
+
+        def level(fraction):
+            lcd.SetBrightness(max(0, min(100, round(target * fraction))))
+
+        def ramp(start, stop, seconds, steps=8, tick=None):
+            # filament warm-up: fast at first, then easing into the target
+            for i in range(1, steps + 1):
+                t = i / steps
+                level(start + (stop - start) * (1 - math.exp(-3 * t)) / (1 - math.exp(-3)))
+                cls._run(seconds / steps, tick)
+
+        w, h = base.size
+        snow_start = time.monotonic()
+
+        def boil():
+            # the snow keeps moving: fresh noise strips at random heights, and a brighter roll bar sweeping down
+            for _ in range(2):
+                band = random.randrange(10, 26)
+                lcd.DisplayPILImage(cls._snow((w, band), bright, bg), 0, random.randrange(0, h - band))
+            roll = int(((time.monotonic() - snow_start) * 260) % (h + 40)) - 40
+            top, bottom = max(0, roll), min(h, roll + 40)
+            if bottom - top > 4:
+                lcd.DisplayPILImage(cls._snow((w, bottom - top), bright, bg, gain=1.8), 0, top)
+
+        # dark tube, no signal: snow on the raster, boiling
+        level(0)
+        lcd.DisplayPILImage(cls._snow((w, h), bright, bg), 0, 0)
+        cls._run(0.25, boil)
+        # high-voltage kick: a short flash, then dim again
+        level(0.55)
+        cls._run(0.08, boil)
+        level(0.08)
+        ramp(0.08, 0.3, 0.6, steps=5, tick=boil)
+
+        # sync lock: the picture appears unfocused and small, then rows tear sideways while H-sync settles
+        soft = cls._unfocused(base, bg)
+        lcd.DisplayPILImage(soft, 0, 0)
+        ramp(0.3, 0.55, 0.3, steps=4)
+        rows_with_content = [r for r in range(8, h - 12, 2) if soft.crop((0, r, w, r + 2)).getextrema()[1][1] > 40]
+        for burst in range(2):
+            torn = []
+            for _ in range(3):
+                y = random.choice(rows_with_content) if rows_with_content else random.randrange(20, h - 30)
+                band = random.randrange(5, 12)
+                original = soft.crop((0, y, w, y + band))
+                shifted = Image.new("RGB", original.size, bg)
+                shifted.paste(original, (random.choice((-1, 1)) * random.randrange(8, 22), 0))
+                ImageDraw.Draw(shifted).line((0, 0, w, 0), fill=tuple(c // 2 for c in bright))  # retrace line
+                lcd.DisplayPILImage(shifted, 0, y)
+                torn.append((y, original))
+            cls._wait(0.09)
+            for y, original in torn:
+                lcd.DisplayPILImage(original, 0, y)
+            cls._wait(0.05)
+        ramp(0.55, 0.8, 0.35, steps=4)
+
+        # focus snap: sharp and full size, brightness overshoots then settles
+        lcd.DisplayPILImage(base, 0, 0)
+        level(1.18)
+        cls._wait(0.12)
+        level(0.95)
+        cls._wait(0.08)
+        level(1.0)
+        cls._wait(0.25)
+
+    @classmethod
+    def play(cls, lcd):
+        from library import config
+        from PIL import Image, ImageDraw
+        spec = config.THEME_DATA.get("bc250_splash") or {}
+        if not spec.get("ENABLED") or any(a.startswith(("-t", "--theme-screenshots")) for a in sys.argv[1:]):
+            return
+        base = _Draw.background(spec.get("IMAGE", "splash.png"))
+        w, h = base.size
+        bright, mid, dim, amber, alert, bg = (_Draw.color(spec.get(k)) for k in
+                                              ("BRIGHT", "MID", "DIM", "AMBER", "ALERT_COLOR", "BG"))
+        small = _Draw.font(spec["FONT"], 12)
+        status_color = {"OK": bright, "WARN": amber, "WAIT": _dim(amber, 0.7), "HOT!": alert}
+
+        # 1. CRT warm-up. Fades use the backlight (one tiny command each), so only three full frames are sent
+        cls.warm_up(lcd, base, bright, bg)
+
+        # 2. POST: each line typed with "..." then its status
+        def row(index, label, value, status=None):
+            baseline = int(spec["ROW_BL"]) + index * int(spec["ROW_STEP"])
+            box = (6, baseline - 11, w - 6, baseline + 4)
+            strip = base.crop(box)
+            d = ImageDraw.Draw(strip)
+            ox, oy = box[0], box[1]
+            d.text((int(spec["LABEL_X"]) - ox, baseline - oy), label, font=small, fill=mid, anchor="ls")
+            d.text((int(spec["VALUE_X"]) - ox, baseline - oy), value[:52], font=small, fill=bright, anchor="ls")
+            tag = "[ .. ]" if status is None else f"[{status:^4}]"
+            d.text((int(spec["STATUS_XR"]) - ox, baseline - oy), tag, font=small,
+                   fill=dim if status is None else status_color.get(status, bright), anchor="rs")
+            lcd.DisplayPILImage(strip, box[0], box[1])
+
+        logo = _attempt("3D logo", lambda: _Logo3D(spec)) if "LOGO_BOX" in spec else None
+        sway = (lambda: logo.sway(lcd)) if logo else None
+
+        lines = cls.post_lines(spec)
+        for i, (label, value, status) in enumerate(lines):
+            row(i, label, value)
+            cls._run(cls.STEP * 0.55, sway)
+            row(i, label, value, status)
+            cls._run(cls.STEP * 0.45, sway)
+
+        # 3. loading bar, then the verdict
+        x, y, bw, bh = (int(spec[k]) for k in ("BAR_X", "BAR_Y", "BAR_W", "BAR_H"))
+        for step in range(1, 9):
+            bar = base.crop((x, y, x + bw, y + bh))
+            ImageDraw.Draw(bar).rectangle((0, 0, round(bw * step / 8) - 1, bh - 1), fill=mid)
+            lcd.DisplayPILImage(bar, x, y)
+            cls._run(0.12, sway)
+        warnings = sum(1 for _, _, st in lines if st in ("WARN", "HOT!"))
+        verdict = "BOOT OK" if not warnings else f"BOOT OK, {warnings} warning{'s' * (warnings > 1)}"
+        status_bl = int(spec.get("STATUS_BL", 284))
+        box = (6, status_bl - 11, w - 6, status_bl + 4)
+        strip = base.crop(box)
+        ImageDraw.Draw(strip).text((int(spec["LABEL_X"]) - box[0], status_bl - box[1]),
+                                   verdict + " - starting dashboard_", font=small,
+                                   fill=amber if warnings else bright, anchor="ls")
+        lcd.DisplayPILImage(strip, box[0], box[1])
+        if logo:
+            target = max(1, min(100, int(config.CONFIG_DATA["display"].get("BRIGHTNESS", 20))))
+            _attempt("3D logo finale", lambda: logo.ignite(lcd, target))
+        cls._wait(0.9 if warnings else 0.5)
+
+
+def _install_splash_hook():
+    """Play the splash right before the app draws the theme background, i.e. after the screen is initialised and
+    before any widget starts. Only when the app's display module is loaded: importing it from here would open the
+    screen (bc250_check.py imports this module and must stay read-only)."""
+    display_module = sys.modules.get("library.display")
+    display = getattr(display_module, "display", None)
+    if display is None or getattr(type(display), "_bc250_splash", False):
+        return
+    original = type(display).display_static_images
+
+    def display_static_images(self):
+        _attempt("boot splash", lambda: _Splash.play(self.lcd))
+        original(self)
+
+    type(display).display_static_images = display_static_images
+    type(display)._bc250_splash = True
+
+
+def _resilient(cls):
+    """Wraps a widget's methods so an unexpected error shows "--" instead of escaping: stats.Custom.stats stops at
+    the first exception, which would freeze every widget after it."""
+    defaults = {"as_numeric": math.nan, "as_string": "--", "last_values": None}
+    for method, default in defaults.items():
+        original = getattr(cls, method, None)
+        if original is None:
+            continue
+
+        def guarded(self, _original=original, _default=default, _name=f"{cls.__name__}.{method}"):
+            try:
+                return _original(self)
+            except Exception as e:
+                if _name not in _Draw._failed:
+                    _Draw._failed.add(_name)
+                    logger.error("BC250: %s failed: %s", _name, e)
+                return _default
+        setattr(cls, method, guarded)
+    return cls
+
+
+for _name, _obj in list(globals().items()):
+    if _name.startswith("Bc250") and isinstance(_obj, type):
+        _resilient(_obj)
+
+_install_splash_hook()
