@@ -1,7 +1,7 @@
 # BC250-Phosphor theme generator: renders background.png and writes theme.yaml from a single layout,
 # so static art and live widgets always line up. Edit the settings below (or pass them as options), then run:
 #     python3 res/themes/BC250-Phosphor/make_theme.py --help
-# Turing 3.5" (rev A/B/...) in landscape: 480x320.
+# Turing 3.5": landscape 480x320 (default) or portrait 320x480 (--portrait). All geometry is in set_layout().
 #
 # Alignment rules used throughout:
 #   - every text is placed by its BASELINE, so mixed font sizes on one row sit on the same line
@@ -38,8 +38,6 @@ NIGHT = ""  # e.g. "23:30-08:00": screen off (or dimmed) during these hours unle
 NIGHT_MODE = "off"  # "off" or "dim"
 SPLASH = True  # BIOS-style boot screen played before the dashboard
 
-W, H = 480, 320
-
 # P1 phosphor palette
 BG = (2, 9, 4)
 DIM = (18, 78, 38)
@@ -56,60 +54,101 @@ S, M, L = 12, 24, 36  # 1x / 2x / 3x
 CH = {S: 6, M: 12, L: 18}  # monospace advance per size
 ASCENT = {S: 10, M: 20, L: 30}  # font ascent per size (ImageFont.getmetrics)
 
-# Header
 HEADER_H = 16
 HEADER_BL = 12
+CLOCK_CHARS = 8  # "HH:mm:ss"
 
-# CPU / GPU panels
-PANEL_TOP, PANEL_BOTTOM = 26, 162
-CPU_X, GPU_X, PANEL_W = 4, 243, 233
-PAD = 10
-LABEL_BL = 44  # small labels above values
-VALUE_BL = 66  # big number and side values share this baseline
-BAR_Y, BAR_H = 74, 8
-GRAPH_Y, GRAPH_H = 92, 62
 
-# System grid: 3 columns x 2 rows of cells
-GRID = (4, 170, 476, 274)
-CELL_W, CELL_GAP = 142, 13
-GRID_COLS = [GRID[0] + PAD + i * (CELL_W + CELL_GAP) for i in range(3)]
-GRID_ROWS = [178, 226]
-CELL_LABEL_BL, CELL_VALUE_BL = 10, 32  # relative to row top
-CELL_BAR_Y, CELL_BAR_H = 37, 6
-CELL_SPARK_Y, CELL_SPARK_H = 37, 9
+# ---------------------------------------------------------------------------------------------------------------------
+# Layout: every position lives here, one block per orientation
+# ---------------------------------------------------------------------------------------------------------------------
+def panel(x1, y1, x2, y2, col_a_offset):
+    """A CPU/GPU panel: frame box and everything inside, relative to its top-left corner."""
+    x0, xr = x1 + 10, x2 - 10
+    return {
+        "box": (x1, y1, x2, y2),
+        "x0": x0,
+        "xr": xr,  # right edge shared by bar, graph and right column
+        "col_a": x0 + col_a_offset,  # left-anchored middle column (TEMP)
+        "label_bl": y1 + 18,  # small labels above values
+        "value_bl": y1 + 40,  # big number and side values share this baseline
+        "bar": (x0, y1 + 48, xr - x0, 8),
+        "graph": (x0, y1 + 66, xr - x0, (y2 - y1) - 74),
+    }
 
-# Boot splash (splash.png): static art here, POST lines and progress drawn live by sensors_bc250
-SPLASH_LOGO_BL, SPLASH_SUB_BL, SPLASH_SEP_Y = 84, 104, 114
-SPLASH_ROW_BL, SPLASH_ROW_STEP, SPLASH_ROWS = 132, 15, 7
-SPLASH_PROGRESS_BL, SPLASH_FOOTER_BL = 254, 312
-SPLASH_BAR = (214, 246, 466 - 214, 8)  # x, y, w, h of the loading bar
-SPLASH_LOGO_BOX = (96, 21, 288, 75)  # area redrawn by the 3D logo animation (clear of header and subtitle)
-SPLASH_LOGO_CENTER_Y = 60  # the logo is centred here whatever its size
-SPLASH_LOGO_MAX_W = 256  # leaves room in the box for the 3D sway and perspective
+
+def cell(x0, y0, width):
+    """A system-grid cell: label row, value row, then a bar or a sparkline."""
+    return {"x0": x0, "xr": x0 + width, "y0": y0,
+            "label_bl": y0 + 10, "value_bl": y0 + 32,
+            "bar": (x0, y0 + 37, width, 6),
+            "spark": (x0, y0 + 37, width, 9)}
+
+
+def set_layout(portrait: bool):
+    global PORTRAIT, W, H, CLOCK_XR, DATE_XR, cpu, gpu, GRID, GRID_COLS, CELL_W, CELL_GAP, cells
+    global PROMPT_Y, PROMPT_LABEL_BL, PROMPT_VALUE_BL, PROMPT_COLS_BL, PROMPT_X, PROMPT_XR, PROMPT_AREA
+    global PROMPT_COL1_XR, PROMPT_COLS, SPLASH_LAYOUT
+    PORTRAIT = portrait
+    if not portrait:  # 480x320: CPU and GPU side by side, 3x2 grid, one-line prompt
+        W, H = 480, 320
+        DATE_XR = W - 6 - CLOCK_CHARS * CH[S] - 12
+        cpu = panel(4, 26, 237, 162, col_a_offset=100)
+        gpu = panel(243, 26, 476, 162, col_a_offset=100)
+        GRID, CELL_W, CELL_GAP, grid_cols, grid_rows = (4, 170, 476, 274), 142, 13, 3, 2
+        order = (("ram", 0, 0), ("ssd", 1, 0), ("pwr", 2, 0), ("rx", 0, 1), ("tx", 1, 1), ("ping", 2, 1))
+        PROMPT_Y, PROMPT_LABEL_BL, PROMPT_VALUE_BL, PROMPT_COLS_BL = 278, 290, 314, None
+        PROMPT_COL1_XR = 380  # right edge of the first right-hand column (FPS / DONE / TIME)
+        SPLASH_LAYOUT = dict(
+            logo_box=(96, 21, 288, 75), logo_center_y=60, sub_bl=104, sep_y=114,
+            row_bl=132, row_step=15, label_x=14, value_x=86, status_xr=466,
+            progress_bl=254, bar=(214, 246, 466 - 214, 8), status_bl=284,
+            footer=((14, 312, "left", "press"), (466, 312, "right", "prompt")))
+    else:  # 320x480: panels stacked, 2x3 grid, prompt with its values on a row of their own
+        W, H = 320, 480
+        DATE_XR = None  # no room for the date in the header
+        cpu = panel(4, 26, 316, 138, col_a_offset=130)
+        gpu = panel(4, 146, 316, 258, col_a_offset=130)
+        GRID, CELL_W, CELL_GAP, grid_cols, grid_rows = (4, 266, 316, 418), 140, 12, 2, 3
+        order = (("ram", 0, 0), ("ssd", 1, 0), ("pwr", 0, 1), ("ping", 1, 1), ("rx", 0, 2), ("tx", 1, 2))
+        PROMPT_Y, PROMPT_LABEL_BL, PROMPT_VALUE_BL, PROMPT_COLS_BL = 422, 434, 455, 476
+        PROMPT_COL1_XR = None
+        SPLASH_LAYOUT = dict(
+            logo_box=(16, 26, 288, 90), logo_center_y=71, sub_bl=132, sep_y=142,
+            row_bl=166, row_step=20, label_x=14, value_x=70, status_xr=306,
+            progress_bl=324, bar=(14, 334, 292, 8), status_bl=372,
+            footer=((14, 454, "left", "press"), (14, 470, "left", "prompt")))
+    CLOCK_XR = W - 6
+    GRID_COLS = [GRID[0] + 10 + i * (CELL_W + CELL_GAP) for i in range(grid_cols)]
+    grid_rows_y = [GRID[1] + 8 + i * 48 for i in range(grid_rows)]
+    cells = {name: cell(GRID_COLS[col], grid_rows_y[row], CELL_W) for name, col, row in order}
+    PROMPT_X, PROMPT_XR = 14, W - 14
+    PROMPT_AREA = (6, PROMPT_Y + 2, W - 12, H - PROMPT_Y - 2)  # redrawn as a whole by Bc250Prompt
+    # portrait: values on their own row, in two half-width columns (small label left, value right)
+    half = (PROMPT_XR - PROMPT_X - CELL_GAP) // 2
+    PROMPT_COLS = [[PROMPT_X, PROMPT_X + half], [PROMPT_XR - half, PROMPT_XR]] if portrait else None
+    SPLASH_LAYOUT["logo_max_w"] = 256  # leaves room in the logo box for the 3D sway and perspective
+    SPLASH_LAYOUT["value_chars"] = (SPLASH_LAYOUT["status_xr"] - 6 * CH[S] - 8 - SPLASH_LAYOUT["value_x"]) // CH[S]
+
+
+set_layout(portrait=False)
 
 
 def logo_size(text):
     """Largest crisp size (a multiple of the pixel font's 12 px) at which the logo fits its box."""
     for size in (72, 60, 48, 36, 24):
-        if len(text) * size // 2 <= SPLASH_LOGO_MAX_W:
+        if len(text) * size // 2 <= SPLASH_LAYOUT["logo_max_w"]:
             return size
     return 24
 
 
 def logo_baseline(size):
-    return SPLASH_LOGO_CENTER_Y + size * 8 // 12 // 2  # cap height is 8/12 of the size
+    return SPLASH_LAYOUT["logo_center_y"] + size * 8 // 12 // 2  # cap height is 8/12 of the size
 
 
 def spaced(text):
     """S T E A M   M A C H I N E"""
     return "   ".join(" ".join(word) for word in text.split())
-
-# Now playing prompt
-PROMPT_Y = 278
-PROMPT_LABEL_BL, PROMPT_VALUE_BL = 290, 314
-PROMPT_X, PROMPT_XR = 14, 466
-PROMPT_AREA = (6, PROMPT_Y + 2, W - 12, H - PROMPT_Y - 2)  # redrawn as a whole by Bc250Prompt
-PROMPT_COL1_XR = 380  # right edge of the first right-hand column (FPS / DONE / TIME)
 
 
 def rgb(c):
@@ -144,13 +183,15 @@ def line(x, y, w, h, max_value=100, history=48, autoscale=False, color=BRIGHT):
             "AXIS": False, "BACKGROUND_IMAGE": "background.png"}
 
 
-def heat_widget(temp_x, graph, panel_x):
+def heat_widget(p):
     """Temperature drawn by sensors_bc250: value and history coloured green -> orange -> red, flashing from ALERT."""
+    x1, y1 = p["box"][:2]
+    graph = p["graph"]
     return {
         "COLD": TEMP_COLD, "HOT": TEMP_HOT, "ALERT": TEMP_ALERT,
         "COLD_COLOR": rgb(BRIGHT), "HOT_COLOR": rgb(HOT), "ALERT_COLOR": rgb(ALERT), "INK": rgb(INK),
-        "HEAT_TEXT": text(temp_x, VALUE_BL, M, 5),
-        "ALERT_TAG": {"X": panel_x + 8, "Y": PANEL_TOP - 6, "WIDTH": 32, "HEIGHT": 13, "FONT": FONT, "FONT_SIZE": S,
+        "HEAT_TEXT": text(p["col_a"], p["value_bl"], M, 5),
+        "ALERT_TAG": {"X": x1 + 8, "Y": y1 - 6, "WIDTH": 32, "HEIGHT": 13, "FONT": FONT, "FONT_SIZE": S,
                       "BACKGROUND_IMAGE": "background.png"},
         "HEAT_GRAPH": {"X": graph[0], "Y": graph[1], "WIDTH": graph[2], "HEIGHT": graph[3],
                        "MIN_VALUE": TEMP_GRAPH_MIN, "MAX_VALUE": TEMP_GRAPH_MAX, "AXIS_COLOR": rgb(MID),
@@ -175,69 +216,64 @@ def to_yaml(data, indent=0):
     return "\n".join(out)
 
 
-# ---------------------------------------------------------------------------------------------------------------------
-# Layout
-# ---------------------------------------------------------------------------------------------------------------------
-def panel(px):
-    x0, xr = px + PAD, px + PANEL_W - PAD
-    return {
-        "x0": x0,
-        "xr": xr,  # right edge shared by bar, graph and right column
-        "col_a": x0 + 100,  # left-anchored middle column
-        "bar": (x0, BAR_Y, xr - x0, BAR_H),
-        "graph": (x0, GRAPH_Y, xr - x0, GRAPH_H),
-    }
-
-
-cpu, gpu = panel(CPU_X), panel(GPU_X)
-
-
-def cell(col, row):
-    x0, y0 = GRID_COLS[col], GRID_ROWS[row]
-    return {"x0": x0, "xr": x0 + CELL_W, "y0": y0,
-            "label_bl": y0 + CELL_LABEL_BL, "value_bl": y0 + CELL_VALUE_BL,
-            "bar": (x0, y0 + CELL_BAR_Y, CELL_W, CELL_BAR_H),
-            "spark": (x0, y0 + CELL_SPARK_Y, CELL_W, CELL_SPARK_H)}
-
-
-ram, ssd, pwr = cell(0, 0), cell(1, 0), cell(2, 0)
-rx, tx, ping = cell(0, 1), cell(1, 1), cell(2, 1)
-
-CLOCK_XR = W - 6
-DATE_XR = CLOCK_XR - 8 * CH[S] - 12  # "HH:mm:ss" is 8 chars
-
-
 def header_layout(title):
+    """x of the "UP" label, x of the uptime value and its width in characters (0 = no room for it)."""
     up_x = 6 + len(title) * CH[S] + 12
-    return up_x, up_x + 3 * CH[S]
+    uptime_x = up_x + 3 * CH[S]
+    room_right = (DATE_XR - 14 * CH[S]) if DATE_XR else (CLOCK_XR - CLOCK_CHARS * CH[S])
+    chars = min(20, (room_right - 8 - uptime_x) // CH[S])
+    return up_x, uptime_x, (chars if chars >= 8 else 0)
 
 
 def build_theme(title, prompt):
-    _, uptime_x = header_layout(title)
+    _, uptime_x, uptime_chars = header_layout(title)
     net_spark = dict(max_value=10_000_000_000, autoscale=True)
-    return {
+    ram, ssd, pwr, rx, tx, ping = (cells[k] for k in ("ram", "ssd", "pwr", "rx", "tx", "ping"))
+    sl = SPLASH_LAYOUT
+    date = {"INTERVAL": 1}
+    if DATE_XR:
+        date["DAY"] = {"TEXT": text(DATE_XR, HEADER_BL, S, 14, INK, right=True, FORMAT="EEE dd MMM")}
+    date["HOUR"] = {"TEXT": text(CLOCK_XR, HEADER_BL, S, CLOCK_CHARS, INK, right=True, FORMAT="HH:mm:ss")}
+    prompt_spec = {
+        "AREA": {"X": PROMPT_AREA[0], "Y": PROMPT_AREA[1], "WIDTH": PROMPT_AREA[2],
+                 "HEIGHT": PROMPT_AREA[3], "BACKGROUND_IMAGE": "background.png"},
+        "FONT": FONT, "BRIGHT": rgb(BRIGHT), "MID": rgb(MID), "DIM": rgb(DIM), "AMBER": rgb(AMBER),
+        "LABEL_BL": PROMPT_LABEL_BL, "VALUE_BL": PROMPT_VALUE_BL,
+        "CMD_X": PROMPT_X + (len(prompt) + 1) * CH[S], "TEXT_X": PROMPT_X,
+    }
+    if PROMPT_COLS:  # portrait: the name gets the whole row, values go on the row below
+        prompt_spec.update({"COLS_BL": PROMPT_COLS_BL, "COLS": PROMPT_COLS,
+                            "MAX_CHARS": (PROMPT_XR - PROMPT_X) // CH[M] - 1,
+                            "MAX_CHARS_WIDE": (PROMPT_XR - PROMPT_X) // CH[M] - 1})
+    else:
+        prompt_spec.update({"COL1_XR": PROMPT_COL1_XR, "COL2_XR": PROMPT_XR,
+                            "MAX_CHARS": (PROMPT_COL1_XR - 4 * CH[M] - 12 - PROMPT_X) // CH[M] - 1,
+                            "MAX_CHARS_WIDE": (PROMPT_XR - 5 * CH[M] - 12 - PROMPT_X) // CH[M] - 1})
+    theme = {
         "author": "BC-250 Steam Machine",
         # read by sensors_bc250 (not by the app itself): the boot sequence played before the dashboard
         "bc250_splash": {
             "ENABLED": SPLASH, "IMAGE": "splash.png", "FONT": FONT, "ALERT": TEMP_ALERT,
             "BRIGHT": rgb(BRIGHT), "MID": rgb(MID), "DIM": rgb(DIM), "AMBER": rgb(AMBER), "ALERT_COLOR": rgb(ALERT),
-            "BG": rgb(BG), "ROW_BL": SPLASH_ROW_BL, "ROW_STEP": SPLASH_ROW_STEP, "ROWS": SPLASH_ROWS,
-            "LABEL_X": 14, "VALUE_X": 86, "STATUS_XR": 466,
-            "PROGRESS_BL": SPLASH_PROGRESS_BL, "STATUS_BL": 284, "BAR_X": SPLASH_BAR[0], "BAR_Y": SPLASH_BAR[1],
-            "BAR_W": SPLASH_BAR[2], "BAR_H": SPLASH_BAR[3],
+            "BG": rgb(BG), "ROW_BL": sl["row_bl"], "ROW_STEP": sl["row_step"], "ROWS": 7,
+            "LABEL_X": sl["label_x"], "VALUE_X": sl["value_x"], "STATUS_XR": sl["status_xr"],
+            "VALUE_CHARS": sl["value_chars"],
+            "PROGRESS_BL": sl["progress_bl"], "STATUS_BL": sl["status_bl"], "BAR_X": sl["bar"][0],
+            "BAR_Y": sl["bar"][1], "BAR_W": sl["bar"][2], "BAR_H": sl["bar"][3],
             "IMAGE_NOLOGO": "splash_nologo.png", "LOGO_TEXT": LOGO, "LOGO_SIZE": logo_size(LOGO),
-            "LOGO_BL": logo_baseline(logo_size(LOGO)), "LOGO_BOX": list(SPLASH_LOGO_BOX),
+            "LOGO_BL": logo_baseline(logo_size(LOGO)), "LOGO_BOX": list(sl["logo_box"]),
         },
-        "display": {"DISPLAY_SIZE": '3.5"', "DISPLAY_ORIENTATION": "landscape", "DISPLAY_RGB_LED": rgb(MID)},
+        "display": {"DISPLAY_SIZE": '3.5"', "DISPLAY_ORIENTATION": "portrait" if PORTRAIT else "landscape",
+                    "DISPLAY_RGB_LED": rgb(MID)},
         "static_images": {"BACKGROUND": {"PATH": "background.png", "X": 0, "Y": 0, "WIDTH": W, "HEIGHT": H}},
         "STATS": {
             "CPU": {
                 "PERCENTAGE": {
                     "INTERVAL": 1,
-                    "TEXT": text(cpu["x0"], VALUE_BL, L, 4),
+                    "TEXT": text(cpu["x0"], cpu["value_bl"], L, 4),
                     "GRAPH": bar(*cpu["bar"]),
                 },
-                "FREQUENCY": {"INTERVAL": 2, "TEXT": text(cpu["xr"], VALUE_BL, M, 4, unit=False, right=True)},
+                "FREQUENCY": {"INTERVAL": 2, "TEXT": text(cpu["xr"], cpu["value_bl"], M, 4, unit=False, right=True)},
             },
             "MEMORY": {
                 "INTERVAL": 2,
@@ -261,18 +297,13 @@ def build_theme(title, prompt):
                 "TEXT": text(ping["x0"], ping["value_bl"], M, 8),
                 "LINE_GRAPH": line(*ping["spark"], max_value=200),
             },
-            "DATE": {
-                "INTERVAL": 1,
-                "DAY": {"TEXT": text(DATE_XR, HEADER_BL, S, 14, INK, right=True, FORMAT="EEE dd MMM")},
-                "HOUR": {"TEXT": text(CLOCK_XR, HEADER_BL, S, 8, INK, right=True, FORMAT="HH:mm:ss")},
-            },
-            "UPTIME": {"INTERVAL": 1, "FORMATTED": {"TEXT": text(uptime_x, HEADER_BL, S, 20, INK)}},
+            "DATE": date,
             "CUSTOM": {
                 "INTERVAL": 1,
-                "Bc250CpuTemp": heat_widget(cpu["col_a"], cpu["graph"], CPU_X),
-                "Bc250GpuLoad": {"TEXT": text(gpu["x0"], VALUE_BL, L, 4), "GRAPH": bar(*gpu["bar"])},
-                "Bc250GpuTemp": heat_widget(gpu["col_a"], gpu["graph"], GPU_X),
-                "Bc250GpuClock": {"TEXT": text(gpu["xr"], VALUE_BL, M, 4, right=True)},
+                "Bc250CpuTemp": heat_widget(cpu),
+                "Bc250GpuLoad": {"TEXT": text(gpu["x0"], gpu["value_bl"], L, 4), "GRAPH": bar(*gpu["bar"])},
+                "Bc250GpuTemp": heat_widget(gpu),
+                "Bc250GpuClock": {"TEXT": text(gpu["xr"], gpu["value_bl"], M, 4, right=True)},
                 "Bc250GameDisk": {"TEXT": text(ssd["x0"], ssd["value_bl"], M, 4), "GRAPH": bar(*ssd["bar"])},
                 "Bc250GameDiskFree": {"TEXT": text(ssd["xr"], ssd["value_bl"], S, 7, MID, right=True)},
                 "Bc250ApuPower": {
@@ -285,21 +316,19 @@ def build_theme(title, prompt):
                 },
                 "Bc250GpuMem": {"TEXT": text(pwr["xr"], pwr["value_bl"], S, 6, MID, right=True)},
                 # after the temperature widgets: it records their peaks during a game session
-                "Bc250Prompt": {
-                    "AREA": {"X": PROMPT_AREA[0], "Y": PROMPT_AREA[1], "WIDTH": PROMPT_AREA[2],
-                             "HEIGHT": PROMPT_AREA[3], "BACKGROUND_IMAGE": "background.png"},
-                    "FONT": FONT, "BRIGHT": rgb(BRIGHT), "MID": rgb(MID), "DIM": rgb(DIM), "AMBER": rgb(AMBER),
-                    "LABEL_BL": PROMPT_LABEL_BL, "VALUE_BL": PROMPT_VALUE_BL,
-                    "CMD_X": PROMPT_X + (len(prompt) + 1) * CH[S], "TEXT_X": PROMPT_X,
-                    "COL1_XR": PROMPT_COL1_XR, "COL2_XR": PROMPT_XR,
-                    "MAX_CHARS": (PROMPT_COL1_XR - 4 * CH[M] - 12 - PROMPT_X) // CH[M] - 1,
-                    "MAX_CHARS_WIDE": (PROMPT_XR - 5 * CH[M] - 12 - PROMPT_X) // CH[M] - 1,
-                },
+                "Bc250Prompt": prompt_spec,
                 "Bc250Screen": {"SCREEN": {"DIM_AFTER": DIM_AFTER, "DIM_BRIGHTNESS": DIM_BRIGHTNESS,
                                            "NIGHT": NIGHT, "NIGHT_MODE": NIGHT_MODE}},
             },
         },
     }
+    if uptime_chars:
+        theme["STATS"]["UPTIME"] = {"INTERVAL": 1,
+                                    "FORMATTED": {"TEXT": text(uptime_x, HEADER_BL, S, uptime_chars, INK)}}
+    # keep the original key order (STATS: CPU, MEMORY, NET, PING, DATE, UPTIME, CUSTOM)
+    stats = theme["STATS"]
+    theme["STATS"] = {k: stats[k] for k in ("CPU", "MEMORY", "NET", "PING", "DATE", "UPTIME", "CUSTOM") if k in stats}
+    return theme
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -381,31 +410,31 @@ class Canvas:
 
 def render_background(title, prompt):
     c = Canvas()
-    up_x, _ = header_layout(title)
+    up_x, _, uptime_chars = header_layout(title)
 
     # Header band (inverse video)
     c.d.rectangle((0, 0, W, HEADER_H), fill=MID)
     c.g.rectangle((0, 0, W, HEADER_H), fill=DIM)
     c.label(6, HEADER_BL, title, INK, glow=False)
-    c.label(up_x, HEADER_BL, "UP", (14, 70, 34), glow=False)
+    if uptime_chars:
+        c.label(up_x, HEADER_BL, "UP", (14, 70, 34), glow=False)
 
     # CPU / GPU panels: same columns in both, LOAD % | TEMP | CLK
-    for px, name, subtitle, p, clk in ((CPU_X, "CPU", "ZEN2 6C/12T", cpu, "CLK GHZ"),
-                                       (GPU_X, "GPU", "RDNA2 24CU", gpu, "CLK MHZ")):
-        c.frame((px, PANEL_TOP, px + PANEL_W, PANEL_BOTTOM), name, subtitle)
-        c.label(p["col_a"], LABEL_BL, "TEMP")
-        c.label(p["xr"], LABEL_BL, clk, anchor="rs")
+    for p, name, subtitle, clk in ((cpu, "CPU", "ZEN2 6C/12T", "CLK GHZ"), (gpu, "GPU", "RDNA2 24CU", "CLK MHZ")):
+        c.frame(p["box"], name, subtitle)
+        c.label(p["col_a"], p["label_bl"], "TEMP")
+        c.label(p["xr"], p["label_bl"], clk, anchor="rs")
         c.bar_track(*p["bar"])
         c.graph_grid(*p["graph"])
-        c.label(p["xr"] - 2, GRAPH_Y + 10, "°C 60s", DIM, anchor="rs")
+        if p["graph"][3] >= 50:  # on short charts it would collide with the threshold labels
+            c.label(p["xr"] - 2, p["graph"][1] + 10, "°C 60s", DIM, anchor="rs")
 
     # System grid
     c.frame(GRID, "SYS", "MEM / STORAGE / NET")
-    cells = [
-        (ram, "RAM", "USED", "bar"), (ssd, "GAMES SSD", "FREE", "bar"), (pwr, "APU PWR", "GPU MEM", "bar"),
-        (rx, "↓ DOWNLOAD", None, "spark"), (tx, "↑ UPLOAD", None, "spark"), (ping, "PING", None, "spark"),
-    ]
-    for cl, label, sublabel, kind in cells:
+    labels = [("ram", "RAM", "USED", "bar"), ("ssd", "GAMES SSD", "FREE", "bar"), ("pwr", "APU PWR", "GPU MEM", "bar"),
+              ("rx", "↓ DOWNLOAD", None, "spark"), ("tx", "↑ UPLOAD", None, "spark"), ("ping", "PING", None, "spark")]
+    for key, label, sublabel, kind in labels:
+        cl = cells[key]
         c.label(cl["x0"], cl["label_bl"], label)
         if sublabel:
             c.label(cl["xr"], cl["label_bl"], sublabel, DIM, anchor="rs")
@@ -413,7 +442,7 @@ def render_background(title, prompt):
             c.bar_track(*cl["bar"], ticks=False)
         else:
             c.graph_grid(*cl["spark"])
-    for col in (1, 2):
+    for col in range(1, len(GRID_COLS)):
         c.dotted_vline(GRID_COLS[col] - (CELL_GAP + 1) // 2, GRID[1] + 8, GRID[3] - 4)
 
     # Now playing prompt
@@ -424,9 +453,12 @@ def render_background(title, prompt):
 
 
 def render_splash(title, prompt, logo=True):
+    sl = SPLASH_LAYOUT
     c = Canvas()
-    c.label(14, 14, "PHOSPHOR BIOS v2.50", MID)
-    c.label(466, 14, title, DIM, anchor="rs")
+    bios = "PHOSPHOR BIOS v2.50"
+    c.label(14, 14, bios, MID)
+    if 14 + (len(bios) + 2 + len(title)) * CH[S] <= W - 14:  # the title only when it fits beside it
+        c.label(W - 14, 14, title, DIM, anchor="rs")
     c.dotted_hline(6, W - 6, 20)
 
     # Logo: the pixel font at 6x, with a strong bloom (splash_nologo.png leaves it out for the 3D animation)
@@ -434,21 +466,23 @@ def render_splash(title, prompt, logo=True):
         size = logo_size(LOGO)
         c.label(W // 2, logo_baseline(size), LOGO, BRIGHT, anchor="ms", size=size)
         c.g.text((W // 2, logo_baseline(size)), LOGO, font=font(size), fill=BRIGHT, anchor="ms")
-    c.label(W // 2, SPLASH_SUB_BL, spaced(SUBTITLE), AMBER, anchor="ms")
-    c.dotted_hline(6, W - 6, SPLASH_SEP_Y)
+    c.label(W // 2, sl["sub_bl"], spaced(SUBTITLE), AMBER, anchor="ms")
+    c.dotted_hline(6, W - 6, sl["sep_y"])
 
-    c.dotted_hline(6, W - 6, SPLASH_PROGRESS_BL - 18)
-    c.label(14, SPLASH_PROGRESS_BL, "LOADING BC250-PHOSPHOR", MID)
-    x, y, w, h = SPLASH_BAR
+    c.dotted_hline(6, W - 6, sl["progress_bl"] - 18)
+    c.label(14, sl["progress_bl"], "LOADING BC250-PHOSPHOR", MID)
+    x, y, w, h = sl["bar"]
     c.d.rectangle((x - 2, y - 2, x + w + 1, y + h + 1), outline=DIM)
 
-    c.label(14, SPLASH_FOOTER_BL, "Press DEL to enter SETUP", DIM)
-    c.label(466, SPLASH_FOOTER_BL, prompt, DIM, anchor="rs")
+    for fx, fy, side, what in sl["footer"]:
+        c.label(fx, fy, "Press DEL to enter SETUP" if what == "press" else prompt, DIM,
+                anchor="rs" if side == "right" else "ls")
     return c.finish()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate the BC250-Phosphor theme")
+    parser.add_argument("--portrait", action="store_true", help="portrait 320x480 layout (default: landscape)")
     parser.add_argument("--user", default=PROMPT_USER, help="user shown in the prompt (default: %(default)s)")
     parser.add_argument("--host", default=PROMPT_HOST, help="host shown in the prompt (default: %(default)s)")
     parser.add_argument("--title", default=TITLE, help='header text (default: "<LOGO>::<USER>")')
@@ -472,6 +506,7 @@ if __name__ == "__main__":
     parser.add_argument("--night-mode", choices=("off", "dim"), default=NIGHT_MODE,
                         help="turn the screen off or just dim it at night (default: %(default)s)")
     args = parser.parse_args()
+    set_layout(args.portrait)
     TEMP_COLD, TEMP_HOT, TEMP_ALERT = args.cold, args.hot, args.alert
     SPLASH = not args.no_splash
     # control characters would make theme.yaml unloadable
@@ -481,12 +516,13 @@ if __name__ == "__main__":
     LOGO, SUBTITLE = printable(args.logo), printable(args.subtitle)
     if not LOGO:
         parser.error("--logo cannot be empty")
-    if len(LOGO) * logo_size(LOGO) // 2 > SPLASH_LOGO_MAX_W:
-        cut = LOGO[:SPLASH_LOGO_MAX_W // 12]
+    max_w = SPLASH_LAYOUT["logo_max_w"]
+    if len(LOGO) * logo_size(LOGO) // 2 > max_w:
+        cut = LOGO[:max_w // 12]
         LOGO = cut.rsplit(" ", 1)[0] if " " in cut.strip() else cut  # at a word boundary when possible
         print(f"note: --logo shortened to '{LOGO}' to fit the splash")
-    if len(spaced(SUBTITLE)) > 76:
-        SUBTITLE = SUBTITLE[:38]
+    if len(spaced(SUBTITLE)) > (W - 12) // CH[S]:
+        SUBTITLE = SUBTITLE[:(W - 12) // CH[S] // 2]
         print(f"note: --subtitle shortened to '{SUBTITLE}' to fit the splash")
     POWER_LOW, POWER_HIGH = args.pwr_low, args.pwr_high
     DIM_AFTER, DIM_BRIGHTNESS, NIGHT, NIGHT_MODE = args.dim_after, args.dim_brightness, args.night, args.night_mode
@@ -498,8 +534,10 @@ if __name__ == "__main__":
     render_splash(title, prompt).save(THEME_DIR / "splash.png")
     render_splash(title, prompt, logo=False).save(THEME_DIR / "splash_nologo.png")
     header = ("# BC250-Phosphor - retro P1 phosphor terminal for an AMD BC-250 Steam Machine\n"
-              "# Turing 3.5\" landscape. GENERATED by make_theme.py: edit the script or its options and re-run it.\n"
+              f"# Turing 3.5\" {'portrait' if PORTRAIT else 'landscape'}. GENERATED by make_theme.py: "
+              "edit the script or its options and re-run it.\n"
               "# Needs library/sensors/sensors_bc250.py (GPU via amdgpu sysfs, no pyamdgpuinfo needed).\n---\n")
     (THEME_DIR / "theme.yaml").write_text(header + to_yaml(build_theme(title, prompt)) + "\n", encoding="utf-8", newline="\n")
-    print(f"Wrote background.png and theme.yaml: title '{title}', prompt '{prompt}', "
-          f"logo '{LOGO}' / '{SUBTITLE}', temps {TEMP_COLD}/{TEMP_HOT}/{TEMP_ALERT}°C, power {POWER_LOW}-{POWER_HIGH}W, dim after {DIM_AFTER} min, night '{NIGHT or 'off'}'")
+    print(f"Wrote background.png and theme.yaml: {'portrait' if PORTRAIT else 'landscape'}, title '{title}', "
+          f"prompt '{prompt}', logo '{LOGO}' / '{SUBTITLE}', temps {TEMP_COLD}/{TEMP_HOT}/{TEMP_ALERT}°C, "
+          f"power {POWER_LOW}-{POWER_HIGH}W, dim after {DIM_AFTER} min, night '{NIGHT or 'off'}'")

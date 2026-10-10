@@ -1160,13 +1160,21 @@ class Bc250Prompt:
 
         d.text((spec["CMD_X"] - ox, label_bl), state["cmd"], font=small, fill=dim, anchor="ls")
 
-        # right columns, laid out from the right edge
-        right_edges = [spec["COL2_XR"] - ox, spec["COL1_XR"] - ox]
-        for i, ((label, value), xr) in enumerate(zip(reversed(state["cols"]), right_edges)):
-            d.text((xr, label_bl), label, font=small, fill=dim, anchor="rs")
-            warn = i == 0 and state.get("alert_col")  # e.g. a stalled shader job
-            d.text((xr, value_bl), value, font=big, fill=_Draw.color(spec.get("AMBER")) if warn else bright,
-                   anchor="rs")
+        amber = _Draw.color(spec.get("AMBER"))
+        if "COLS_BL" in spec:
+            # portrait: values on a row of their own, small label on the left of each half, value on the right
+            cols_bl = int(spec["COLS_BL"]) - oy
+            for i, ((label, value), (xl, xr)) in enumerate(zip(state["cols"], spec["COLS"])):
+                warn = i == len(state["cols"]) - 1 and state.get("alert_col")  # e.g. a stalled shader job
+                d.text((xl - ox, cols_bl), label, font=small, fill=dim, anchor="ls")
+                d.text((xr - ox, cols_bl), value, font=big, fill=amber if warn else bright, anchor="rs")
+        else:
+            # landscape: columns on the value row, laid out from the right edge
+            right_edges = [spec["COL2_XR"] - ox, spec["COL1_XR"] - ox]
+            for i, ((label, value), xr) in enumerate(zip(reversed(state["cols"]), right_edges)):
+                d.text((xr, label_bl), label, font=small, fill=dim, anchor="rs")
+                warn = i == 0 and state.get("alert_col")  # e.g. a stalled shader job
+                d.text((xr, value_bl), value, font=big, fill=amber if warn else bright, anchor="rs")
 
         room = spec["MAX_CHARS"] if len(state["cols"]) > 1 else spec["MAX_CHARS_WIDE"]
         text = state["text"] or ""
@@ -1403,6 +1411,16 @@ class _Splash:
     STEP = 0.28  # seconds per POST line
 
     @staticmethod
+    def fit(value: str, chars: int) -> str:
+        """Shorten a POST value for narrow screens: drop "(...)" details first, then cut at a word boundary."""
+        if len(value) <= chars:
+            return value
+        value = re.sub(r"\s*\([^)]*\)", "", value)
+        if len(value) <= chars:
+            return value
+        return value[:chars - 1].rsplit(" ", 1)[0] + "~"
+
+    @staticmethod
     def post_lines(spec: dict) -> List[tuple]:
         """(label, value, status) from the live system; status is OK / WARN / WAIT / HOT!"""
         import psutil
@@ -1414,7 +1432,7 @@ class _Splash:
         def cpu():
             freq = psutil.cpu_freq()
             top = f" @ {freq.max / 1000:.2f} GHz" if freq and freq.max else ""
-            return (f"AMD BC-250 Zen 2 {psutil.cpu_count(False) or '?'}C/{psutil.cpu_count() or '?'}T{top}", "OK")
+            return (f"AMD BC-250 {psutil.cpu_count(False) or '?'}C/{psutil.cpu_count() or '?'}T{top}", "OK")
 
         def memory():
             return (f"{psutil.virtual_memory().total / 1024 ** 3:.1f} GiB system, GDDR6 shared", "OK")
@@ -1606,7 +1624,8 @@ class _Splash:
             d = ImageDraw.Draw(strip)
             ox, oy = box[0], box[1]
             d.text((int(spec["LABEL_X"]) - ox, baseline - oy), label, font=small, fill=mid, anchor="ls")
-            d.text((int(spec["VALUE_X"]) - ox, baseline - oy), value[:52], font=small, fill=bright, anchor="ls")
+            d.text((int(spec["VALUE_X"]) - ox, baseline - oy), cls.fit(value, int(spec.get("VALUE_CHARS", 52))),
+                   font=small, fill=bright, anchor="ls")
             tag = "[ .. ]" if status is None else f"[{status:^4}]"
             d.text((int(spec["STATUS_XR"]) - ox, baseline - oy), tag, font=small,
                    fill=dim if status is None else status_color.get(status, bright), anchor="rs")

@@ -16,13 +16,14 @@
 #   --night HH:MM-HH:MM  screen sleeps during these hours unless a game runs (default: never)
 #   --night-mode off|dim (default: off)
 #   --no-splash    skip the BIOS-style boot screen
+#   --portrait     portrait layout (320x480) instead of landscape
 # Re-run it any time to change these; it is safe to run repeatedly.
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
 REPO="${1:-}"
 if [[ -z "$REPO" || ! -f "$REPO/main.py" || ! -f "$REPO/library/sensors/sensors_custom.py" ]]; then
-  sed -n '3,19p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 1
 fi
 shift
@@ -31,7 +32,7 @@ GEN_ARGS=(--user "$(whoami)" --host "$(hostname -s 2>/dev/null || hostname)")
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --user|--host|--title|--logo|--subtitle|--cold|--hot|--alert|--pwr-low|--pwr-high|--dim-after|--dim-brightness|--night|--night-mode) GEN_ARGS+=("$1" "${2:?$1 needs a value}"); shift 2 ;;
-    --no-splash) GEN_ARGS+=("$1"); shift ;;
+    --no-splash|--portrait) GEN_ARGS+=("$1"); shift ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done

@@ -1,8 +1,8 @@
 # BC250-Phosphor
 
-A retro green-phosphor terminal theme for [turing-smart-screen-python](https://github.com/mathoudebine/turing-smart-screen-python), made for a **3.5" Turing screen in landscape** on an **AMD BC-250 Steam Machine running Bazzite**.
+A retro green-phosphor terminal theme for [turing-smart-screen-python](https://github.com/mathoudebine/turing-smart-screen-python), made for a **3.5" Turing screen** (landscape or portrait) on an **AMD BC-250 Steam Machine running Bazzite**.
 
-![dashboard](res/themes/BC250-Phosphor/preview.png)
+![landscape](res/themes/BC250-Phosphor/preview.png) ![portrait](res/themes/BC250-Phosphor/preview_portrait.png)
 
 ## Quick start
 
@@ -45,6 +45,7 @@ That's it: the screen now starts with the boot animation every time the BC-250 b
 
 | Option | Default | Effect |
 |---|---|---|
+| `--portrait` | landscape | portrait layout (320×480): panels stacked, 2×3 grid |
 | `--logo TEXT` / `--subtitle TEXT` | `BC-250` / `STEAM MACHINE` | boot splash title and the line under it |
 | `--user NAME` / `--host NAME` | your login / hostname | the `user@host:~$` prompt |
 | `--title TEXT` | `<LOGO>::<USER>` | header text |
@@ -88,7 +89,7 @@ That's it: the screen now starts with the boot animation every time the BC-250 b
 | `install_autostart.sh` | the systemd user service (also `--remove`) |
 | `bc250_check.py` | read-only health check of every data source |
 | `library/sensors/sensors_bc250.py` | the data the app can't read on a BC-250, plus the self-drawn widgets and boot animation |
-| `res/themes/BC250-Phosphor/make_theme.py` | generates `theme.yaml` and all the artwork from one layout: edit colours and layout here |
+| `res/themes/BC250-Phosphor/make_theme.py` | generates `theme.yaml` and all the artwork; colours at the top, every position in `set_layout()` (one block per orientation) |
 
 Why the custom sensors:
 - **GPU:** the BC-250 has no `gpu_busy_percent`, and the app's AMD library has no builds for Python above 3.12. Load comes from the kernel's per-process GPU counters (as in `nvtop`); clock, temperature, power and memory come from amdgpu sysfs.
