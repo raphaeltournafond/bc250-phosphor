@@ -16,7 +16,7 @@ Two themes for [turing-smart-screen-python](https://github.com/mathoudebine/turi
 
 1. **Get the theme** in the folder that holds your `turing-smart-screen-python` folder (or in your home, if the app is at `~/turing-smart-screen-python…`):
    ```bash
-   git clone https://github.com/raphaeltournafond/bc250-phosphor
+   git clone https://github.com/raphaeltournafond/bc250-themes
    ```
    Don't have the app yet? Get it into your home folder first:
    ```bash
@@ -24,7 +24,7 @@ Two themes for [turing-smart-screen-python](https://github.com/mathoudebine/turi
    ```
 2. **Run the setup** (plug the screen in first):
    ```bash
-   bash bc250-phosphor/setup.sh
+   bash bc250-themes/setup.sh
    ```
 3. **For FPS in games**, paste this into each game's *Properties > Launch Options* in Steam:
    ```
@@ -35,11 +35,11 @@ That's it: the screen now starts with the boot animation every time the BC-250 b
 
 | To… | Run |
 |---|---|
-| update the theme | `git -C bc250-phosphor pull && bash bc250-phosphor/setup.sh` |
-| switch to the Game Boy theme | `bash bc250-phosphor/setup.sh --theme gameboy` |
-| change an option | `bash bc250-phosphor/setup.sh --night 23:30-08:00 --logo "MY RIG"` (remembered for next time) |
-| go back to the defaults | `bash bc250-phosphor/setup.sh --reset-options` |
-| remove it | `bash bc250-phosphor/setup.sh --uninstall` |
+| update the theme | `git -C bc250-themes pull && bash bc250-themes/setup.sh` |
+| switch to the Game Boy theme | `bash bc250-themes/setup.sh --theme gameboy` |
+| change an option | `bash bc250-themes/setup.sh --night 23:30-08:00 --logo "MY RIG"` (remembered for next time) |
+| go back to the defaults | `bash bc250-themes/setup.sh --reset-options` |
+| remove it | `bash bc250-themes/setup.sh --uninstall` |
 
 ### What setup does
 

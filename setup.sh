@@ -10,7 +10,9 @@
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
-STATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/bc250-phosphor"
+STATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/bc250-themes"
+OLD_STATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/bc250-phosphor"  # name before the repo was renamed
+[[ -d "$OLD_STATE_DIR" && ! -e "$STATE_DIR" ]] && mv "$OLD_STATE_DIR" "$STATE_DIR"  # keeps saved options
 OPTIONS_FILE="$STATE_DIR/options"
 APP_FILE="$STATE_DIR/app_path"
 APP_URL="https://github.com/mathoudebine/turing-smart-screen-python"
