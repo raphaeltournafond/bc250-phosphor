@@ -1,6 +1,6 @@
-# BC250 themes: Phosphor and Game Boy
+# BC250 themes: Phosphor, Game Boy and Retrowave
 
-Two themes for [turing-smart-screen-python](https://github.com/mathoudebine/turing-smart-screen-python), made for a **3.5" Turing screen** (landscape or portrait) on an **AMD BC-250 Steam Machine running Bazzite**. Both show the same live data; pick one with `--theme`.
+Three themes for [turing-smart-screen-python](https://github.com/mathoudebine/turing-smart-screen-python), made for a **3.5" Turing screen** (landscape or portrait) on an **AMD BC-250 Steam Machine running Bazzite**. All three show the same live data; pick one with `--theme`.
 
 **Phosphor** (default): a retro green-phosphor terminal, with a CRT warm-up and a 3D logo at boot.
 
@@ -10,7 +10,11 @@ Two themes for [turing-smart-screen-python](https://github.com/mathoudebine/turi
 
 ![game boy landscape](res/themes/BC250-GameBoy/preview.png) ![game boy portrait](res/themes/BC250-GameBoy/preview_portrait.png)
 
-*Game Boy-inspired fan theme, not affiliated with or endorsed by Nintendo; it uses no Nintendo logos.*
+**Retrowave** (`--theme retrowave`): neon pink and cyan on a purple night, with arcade wording at the bottom ("1UP RAFALE NOW PLAYING", "INSERT COIN" when idle). At boot a neon grid rushes towards you under a striped sunset, a laser scans in your logo in chrome, then a SYSTEM CHECK panel opens on the grid.
+
+![retrowave landscape](res/themes/BC250-Retrowave/preview.png) ![retrowave portrait](res/themes/BC250-Retrowave/preview_portrait.png)
+
+*Game Boy-inspired fan theme, not affiliated with or endorsed by Nintendo; it uses no Nintendo logos. Retrowave's logo uses the Race Space font that comes with the app (free for non-commercial use).*
 
 ## Quick start
 
@@ -36,7 +40,7 @@ That's it: the screen now starts with the boot animation every time the BC-250 b
 | To… | Run |
 |---|---|
 | update the theme | `git -C bc250-themes pull && bash bc250-themes/setup.sh` |
-| switch to the Game Boy theme | `bash bc250-themes/setup.sh --theme gameboy` |
+| switch theme | `bash bc250-themes/setup.sh --theme gameboy` (or `retrowave`, `phosphor`) |
 | change an option | `bash bc250-themes/setup.sh --night 23:30-08:00 --logo "MY RIG"` (remembered for next time) |
 | go back to the defaults | `bash bc250-themes/setup.sh --reset-options` |
 | remove it | `bash bc250-themes/setup.sh --uninstall` |
@@ -54,7 +58,7 @@ That's it: the screen now starts with the boot animation every time the BC-250 b
 
 | Option | Default | Effect |
 |---|---|---|
-| `--theme NAME` | `phosphor` | `phosphor` (green terminal) or `gameboy` (4-shade RPG status screen) |
+| `--theme NAME` | `phosphor` | `phosphor` (green terminal), `gameboy` (4-shade RPG status screen) or `retrowave` (neon sunset) |
 | `--portrait` | landscape | portrait layout (320×480): panels stacked, 2×3 grid |
 | `--logo TEXT` / `--subtitle TEXT` | `BC-250` / `STEAM MACHINE` | boot splash title and the line under it |
 | `--user NAME` / `--host NAME` | your login / hostname | the `user@host:~$` prompt |
@@ -68,14 +72,15 @@ That's it: the screen now starts with the boot animation every time the BC-250 b
 
 ## What's on screen
 
-![phosphor boot](res/themes/BC250-Phosphor/splash_preview.gif) ![game boy boot](res/themes/BC250-GameBoy/splash_preview.gif)
+![phosphor boot](res/themes/BC250-Phosphor/splash_preview.gif) ![game boy boot](res/themes/BC250-GameBoy/splash_preview.gif) ![retrowave boot](res/themes/BC250-Retrowave/splash_preview.gif)
 
 - **Boot** (about 7 s): a self-test of real values (CPU, memory, GPU, temperatures, Steam library, network, Steam client).
   - **Phosphor:** a CRT warm-up, then the "Phosphor BIOS" with a 3D logo.
   - **Game Boy:** your logo drops in, then a SYSTEM CHECK menu with a ▶ cursor and an HP-style loading bar.
-- **CPU / GPU panels:** load %, temperature, clock and a 60 s temperature chart. On Phosphor, colours go green → orange (70 °C) → red (80 °C). The Game Boy has only 4 shades, so it darkens instead. On both, `HOT!` flashes from 80 °C.
-- **System grid:** RAM, games SSD (% used and free space), APU power (green → red, 100 → 200 W), GPU memory, download/upload speed and ping.
-- **Bottom line** (the Game Boy's dialog box, in RPG wording such as "IS PLAYING" or "IS RESTING"): what the machine is doing:
+  - **Retrowave:** the backlight fades up on a sunset and a scrolling neon grid, a laser scans in the chrome logo, then a SYSTEM CHECK panel with a pink-to-cyan loading bar and a blinking PRESS START.
+- **CPU / GPU panels:** load %, temperature, clock and a 60 s temperature chart. On Phosphor, colours go green → orange (70 °C) → red (80 °C); on Retrowave, cyan → pink → sunset orange. The Game Boy has only 4 shades, so it darkens instead. On all three, `HOT!` flashes from 80 °C.
+- **System grid:** RAM, games SSD (% used and free space), APU power (same colour scale as the temperatures, 100 → 200 W), GPU memory, download/upload speed and ping.
+- **Bottom line** (in RPG wording on the Game Boy, such as "IS PLAYING", and arcade wording on Retrowave, such as "NOW PLAYING"): what the machine is doing:
   - **now-playing:** game, FPS and session time;
   - **downloading** / **installing** / **verifying:** a Steam download with its progress bar and ETA;
   - **fossilize_replay:** shader pre-caching, with `STALL` if it gets stuck;
@@ -100,7 +105,7 @@ That's it: the screen now starts with the boot animation every time the BC-250 b
 | `install_bc250.sh` | copies the themes and sensors into the app, builds the chosen theme with your options and selects it |
 | `install_autostart.sh` | the systemd user service (also `--remove`) |
 | `bc250_check.py` | read-only health check of every data source |
-| `library/sensors/sensors_bc250.py` | the data the app can't read on a BC-250, plus the self-drawn widgets and both boot animations |
+| `library/sensors/sensors_bc250.py` | the data the app can't read on a BC-250, plus the self-drawn widgets and the boot animations |
 | `make_theme.py` | generates a theme's `theme.yaml` and artwork: colours in `SKINS`, every position in `set_layout()` (one block per theme and orientation), the artwork in `render_*()` |
 | `res/themes/BC250-*` | each theme's default files and previews |
 

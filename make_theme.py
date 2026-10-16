@@ -1,8 +1,8 @@
 # BC-250 theme generator for turing-smart-screen-python: renders the artwork and writes theme.yaml of one theme
 # from a single layout, so static art and live widgets always line up.
-#     python3 make_theme.py --app ~/turing-smart-screen-python [--theme phosphor|gameboy] [--portrait] [...]
+#     python3 make_theme.py --app ~/turing-smart-screen-python [--theme phosphor|gameboy|retrowave] [--portrait] [...]
 #     python3 make_theme.py --help
-# The theme is written to <app>/res/themes/BC250-Phosphor or BC250-GameBoy (fonts are read from <app>/res/fonts).
+# The theme is written to <app>/res/themes/BC250-<Theme> (fonts are read from <app>/res/fonts).
 #
 # Where things are:
 #   - SKINS: colours of each theme
@@ -19,6 +19,7 @@
 
 import argparse
 import math
+import random
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
@@ -54,11 +55,17 @@ SKINS = {
     # Game Boy DMG: four shades only, darkest on lightest; heat is shown by darker shades and the HOT! flash
     "gameboy": dict(folder="BC250-GameBoy", bg=DMG[0], dim=DMG[1], mid=DMG[2], value=DMG[3], accent=DMG[2],
                     cold=DMG[2], hot=DMG[3], alert=DMG[3], ink=DMG[0], grid_dot=DMG[1], palette=DMG),
+    # Retrowave: neon pink and cyan on a purple night, heat going cyan -> hot pink -> sunset orange
+    "retrowave": dict(folder="BC250-Retrowave", bg=(16, 4, 36), dim=(96, 40, 140), mid=(255, 70, 190),
+                      value=(90, 235, 255), accent=(255, 176, 60), cold=(90, 235, 255), hot=(255, 60, 190),
+                      alert=(255, 96, 36), ink=(24, 4, 40), grid_dot=(54, 20, 84), palette=None),
 }
 SKIN_NAME = "phosphor"
 SKIN = SKINS[SKIN_NAME]
 
 FONT = "fusion-pixel/fusion-pixel-12px-monospaced-zh_hans.otf"  # pixel font: use multiples of 12 only
+RETRO_LOGO_FONT = "racespace/RACESPACESTRIPE-Extended.otf"  # retrowave logo (in the app since 3.10)
+RETRO_TAG_FONT = "racespace/RACESPACEREGULAR-Extended.otf"  # retrowave panel names and subtitle
 S, M, L = 12, 24, 36  # 1x / 2x / 3x
 CH = {S: 6, M: 12, L: 18}  # monospace advance per size
 ASCENT = {S: 10, M: 20, L: 30}  # font ascent per size (ImageFont.getmetrics)
@@ -131,7 +138,7 @@ def set_layout(portrait: bool, skin: str = "phosphor"):
     global PROMPT_Y, PROMPT_LABEL_BL, PROMPT_VALUE_BL, PROMPT_COLS_BL, PROMPT_X, PROMPT_XR, PROMPT_AREA
     global PROMPT_COL1_XR, PROMPT_COLS, SPLASH_LAYOUT
     PORTRAIT, SKIN_NAME, SKIN = portrait, skin, SKINS[skin]
-    gameboy = skin == "gameboy"
+    gameboy, retro = skin == "gameboy", skin == "retrowave"
     card = gameboy_card if gameboy else (lambda *box: phosphor_panel(*box, col_a_offset=130 if portrait else 100))
     if not portrait:  # 480x320: CPU and GPU side by side, 3x2 grid, one-line prompt
         W, H = 480, 320
@@ -155,6 +162,11 @@ def set_layout(portrait: bool, skin: str = "phosphor"):
                 row_bl=132, row_step=15, label_x=14, value_x=86, status_xr=466,
                 progress_bl=254, bar=(214, 246, 466 - 214, 8), status_bl=284,
                 footer=((14, 312, "left", "press"), (466, 312, "right", "prompt")))
+        if retro:  # sunset in the sky, neon grid floor from the horizon, POST panel standing on the floor
+            SPLASH_LAYOUT = dict(
+                horizon=134, sun=(240, 124, 60), logo_center=(240, 62), logo_max_w=330, sub_bl=116,
+                panel=(56, 146, 424, 314), row_bl=168, row_step=14, label_x=68, value_x=116, status_xr=412,
+                progress_bl=272, bar=(128, 265, 412 - 128, 7), status_bl=296)
     else:  # 320x480: panels stacked, 2x3 grid, prompt with its values on a row of their own
         W, H = 320, 480
         DATE_XR = None  # no room for the date in the header
@@ -177,6 +189,11 @@ def set_layout(portrait: bool, skin: str = "phosphor"):
                 row_bl=166, row_step=20, label_x=14, value_x=70, status_xr=306,
                 progress_bl=324, bar=(14, 334, 292, 8), status_bl=372,
                 footer=((14, 454, "left", "press"), (14, 470, "left", "prompt")))
+        if retro:
+            SPLASH_LAYOUT = dict(
+                horizon=200, sun=(160, 186, 70), logo_center=(160, 118), logo_max_w=290, sub_bl=178,
+                panel=(12, 236, 308, 470), row_bl=262, row_step=18, label_x=26, value_x=74, status_xr=294,
+                progress_bl=402, bar=(86, 395, 294 - 86, 7), status_bl=432, footer_bl=456)
     CLOCK_XR = W - 6
     GRID_COLS = [GRID[0] + 10 + i * (CELL_W + CELL_GAP) for i in range(grid_cols)]
     grid_rows_y = [GRID[1] + 8 + i * 48 for i in range(grid_rows)]
@@ -187,7 +204,7 @@ def set_layout(portrait: bool, skin: str = "phosphor"):
     # portrait: values on their own row, in two half-width columns (small label left, value right)
     half = (PROMPT_XR - PROMPT_X - CELL_GAP) // 2
     PROMPT_COLS = [[PROMPT_X, PROMPT_X + half], [PROMPT_XR - half, PROMPT_XR]] if portrait else None
-    SPLASH_LAYOUT["logo_max_w"] = 256  # leaves room in the logo box for the 3D sway and perspective
+    SPLASH_LAYOUT.setdefault("logo_max_w", 256)  # leaves room in the logo box for the 3D sway and perspective
     SPLASH_LAYOUT["value_chars"] = (SPLASH_LAYOUT["status_xr"] - 6 * CH[S] - 8 - SPLASH_LAYOUT["value_x"]) // CH[S]
 
 
@@ -299,9 +316,15 @@ GAMEBOY_WORDS = {"boot": "IS BOOTING", "now-playing": "IS PLAYING", "downloading
                  "last-session": "LAST PLAYED", "idle": "IS RESTING", "idle-text": "Zzz"}
 
 
+# arcade wording of the retrowave prompt ("1UP RAFALE NOW PLAYING", idle: "PRESS START" / "INSERT COIN")
+RETRO_WORDS = {"boot": "BOOTING", "now-playing": "NOW PLAYING", "downloading": "DOWNLOADING",
+               "installing": "INSTALLING", "verifying": "VERIFYING", "fossilize_replay": "COMPILING",
+               "last-session": "LAST GAME", "idle": "PRESS START", "idle-text": "INSERT COIN"}
+
+
 def prompt_prefix(user, prompt):
     """What precedes the live command word in the prompt's label row."""
-    return user.upper() if SKIN_NAME == "gameboy" else prompt
+    return {"gameboy": user.upper(), "retrowave": f"1UP {user.upper()}"}.get(SKIN_NAME, prompt)
 
 
 def build_theme(title, prompt, user):
@@ -309,7 +332,7 @@ def build_theme(title, prompt, user):
     net_spark = dict(max_value=10_000_000_000, autoscale=True)
     ram, ssd, pwr, rx, tx, ping = (cells[k] for k in ("ram", "ssd", "pwr", "rx", "tx", "ping"))
     sl = SPLASH_LAYOUT
-    header_ink = SKIN["ink"] if SKIN_NAME == "phosphor" else SKIN["value"]
+    header_ink = SKIN["value"] if SKIN_NAME == "gameboy" else SKIN["ink"]
     date = {"INTERVAL": 1}
     if DATE_XR:
         date["DAY"] = {"TEXT": text(DATE_XR, HEADER_BL, S, 14, header_ink, right=True, FORMAT="EEE dd MMM")}
@@ -324,6 +347,8 @@ def build_theme(title, prompt, user):
     }
     if SKIN_NAME == "gameboy":
         prompt_spec.update({"CMD_WORDS": GAMEBOY_WORDS, "CURSOR": "▼", "LABEL_COLOR": rgb(SKIN["mid"])})
+    if SKIN_NAME == "retrowave":
+        prompt_spec.update({"CMD_WORDS": RETRO_WORDS, "LABEL_COLOR": rgb(SKIN["accent"])})
     if PROMPT_COLS:  # portrait: the name gets the whole row, values go on the row below
         prompt_spec.update({"COLS_BL": PROMPT_COLS_BL, "COLS": PROMPT_COLS,
                             "MAX_CHARS": (PROMPT_XR - PROMPT_X) // CH[M] - 1,
@@ -341,11 +366,20 @@ def build_theme(title, prompt, user):
         "VALUE_CHARS": sl["value_chars"],
         "PROGRESS_BL": sl["progress_bl"], "STATUS_BL": sl["status_bl"], "BAR_X": sl["bar"][0],
         "BAR_Y": sl["bar"][1], "BAR_W": sl["bar"][2], "BAR_H": sl["bar"][3],
-        "IMAGE_NOLOGO": "splash_nologo.png", "LOGO_TEXT": LOGO, "LOGO_SIZE": logo_size(LOGO),
-        "LOGO_BL": logo_baseline(logo_size(LOGO)), "LOGO_BOX": list(sl["logo_box"]),
+        "IMAGE_NOLOGO": "splash_nologo.png", "LOGO_TEXT": LOGO,
     }
+    if SKIN_NAME != "retrowave":  # the pixel-font logo
+        splash.update({"LOGO_SIZE": logo_size(LOGO), "LOGO_BL": logo_baseline(logo_size(LOGO)),
+                       "LOGO_BOX": list(sl["logo_box"])})
     if SKIN_NAME == "gameboy":
         splash.update({"STYLE": "gameboy", "IMAGE_BLANK": "splash_blank.png", "LIGHT": rgb(DMG[1])})
+    if SKIN_NAME == "retrowave":
+        logo = retro_logo(LOGO)
+        splash.update({"STYLE": "retrowave", "IMAGE_BLANK": "splash_blank.png", "LOGO_FONT": RETRO_LOGO_FONT,
+                       "LOGO_SIZE": logo["size"], "LOGO_CENTER": list(sl["logo_center"]),
+                       "LOGO_BOX": list(logo["face_box"]), "REVEAL_BOX": list(RETRO_REVEAL_BOX),
+                       "HORIZON": sl["horizon"], "PANEL": list(sl["panel"]), "GRID_COLOR": rgb(SKIN["mid"]),
+                       "GRID_SPACING": W // 8, "FOOTER_BL": sl.get("footer_bl", 0)})
     load = lambda p: text(p["load"]["x"], p["load"]["bl"], p["load"]["size"], 4, right=p["load"]["right"])
     clock = lambda p, **kw: text(p["clk"]["x"], p["clk"]["bl"], M, 4, right=p["clk"]["right"], **kw)
     theme = {
@@ -424,6 +458,10 @@ def build_theme(title, prompt, user):
 # ---------------------------------------------------------------------------------------------------------------------
 def font(size):
     return ImageFont.truetype(str(FONTS_DIR / FONT), size)
+
+
+def font_file(name, size):
+    return ImageFont.truetype(str(FONTS_DIR / name), size)
 
 
 def mix(a, b, t):
@@ -512,16 +550,18 @@ class Canvas:
     def finish(self):
         if SKIN_NAME == "gameboy":
             return self.lcd_grid(self.img)
+        retro = SKIN_NAME == "retrowave"  # neon: stronger bloom, lighter scanlines and vignette
         bloom = self.glow.filter(ImageFilter.GaussianBlur(3))
-        img = ImageChops.add(self.img, bloom.point(lambda v: int(v * 0.55)))
+        img = ImageChops.add(self.img, bloom.point(lambda v: int(v * (0.7 if retro else 0.55))))
         # vignette + scanlines (dark rows are the odd ones: sensors_bc250 draws its chart fills on even rows)
         px = img.load()
         cx, cy = W / 2, H / 2
         max_r = math.hypot(cx, cy)
+        dark_row, vignette = (0.86, 0.3) if retro else (0.78, 0.45)
         for y in range(H):
-            scan = 0.78 if y % 2 else 1.0
+            scan = dark_row if y % 2 else 1.0
             for x in range(W):
-                k = scan * (1.0 - 0.45 * (math.hypot(x - cx, y - cy) / max_r) ** 2.2)
+                k = scan * (1.0 - vignette * (math.hypot(x - cx, y - cy) / max_r) ** 2.2)
                 r, g, b = px[x, y]
                 px[x, y] = (int(r * k), int(g * k), int(b * k))
         return img
@@ -678,6 +718,211 @@ def render_splash_gameboy(title, prompt, logo=True, menu=True):
     return c.finish()
 
 
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Retrowave artwork
+# ---------------------------------------------------------------------------------------------------------------------
+RETRO_SKY = [(0.0, (8, 2, 28)), (0.55, (44, 8, 78)), (1.0, (140, 24, 116))]  # top of the sky .. horizon
+RETRO_FLOOR = [(0.0, (46, 6, 70)), (1.0, (10, 0, 24))]  # horizon .. bottom of the screen
+RETRO_CHROME = [(0.0, (40, 60, 160)), (0.42, (180, 230, 255)), (0.5, (255, 255, 255)), (0.53, (60, 18, 84)),
+                (0.72, (255, 110, 70)), (1.0, (255, 225, 120))]  # top .. bottom of the chrome letters
+RETRO_SUN = [(0.0, (255, 236, 110)), (0.55, (255, 120, 90)), (1.0, (255, 40, 150))]
+RETRO_REVEAL_BOX = (0, 0, 0, 0)  # what the logo and subtitle change on the splash, measured when it is rendered
+
+
+def stops(colors, t):
+    """Colour at t (0..1) along [(position, colour), ...]."""
+    t = max(0.0, min(1.0, t))
+    for (p1, c1), (p2, c2) in zip(colors, colors[1:]):
+        if t <= p2:
+            return mix(c1, c2, (t - p1) / (p2 - p1) if p2 > p1 else 0.0)
+    return colors[-1][1]
+
+
+def vgradient(c, box, colors):
+    x1, y1, x2, y2 = box
+    for y in range(y1, y2 + 1):
+        c.d.line((x1, y, x2, y), fill=stops(colors, (y - y1) / max(1, y2 - y1)))
+
+
+def retro_logo(text):
+    """Size of the chrome logo (largest that fits) and the box of its letters on the splash."""
+    for size in range(64, 15, -4):
+        f = font_file(RETRO_LOGO_FONT, size)
+        left, top, right, bottom = f.getbbox(text, anchor="mm")
+        if right - left <= SPLASH_LAYOUT["logo_max_w"]:
+            break
+    cx, cy = SPLASH_LAYOUT["logo_center"]
+    return {"size": size, "font": f,
+            "face_box": (max(0, cx + left - 3), max(0, cy + top - 3), min(W, cx + right + 3), min(H, cy + bottom + 3))}
+
+
+def retro_subtitle_font(text):
+    """The 80s face when the letter-spaced subtitle fits, the pixel font otherwise."""
+    f = font_file(RETRO_TAG_FONT, 14)
+    return f if f.getlength(text) <= W - 24 else font(S)
+
+
+def neon_frame(c, box, title=None, subtitle=None):
+    """Glowing pink tube with cyan corners; the title (80s face) and subtitle sit in a gap of the top line."""
+    x1, y1, x2, y2 = box
+    clean = c.img.crop((x1, y1 - 7, x2 + 1, y1 + 8))
+    c.d.rounded_rectangle(box, radius=3, outline=SKIN["mid"])
+    c.g.rounded_rectangle(box, radius=3, outline=mix(SKIN["mid"], (0, 0, 0), 0.35))
+    for cx, cy, sx, sy in ((x1, y1, 1, 1), (x2, y1, -1, 1), (x1, y2, 1, -1), (x2, y2, -1, -1)):
+        for d in (c.d, c.g):
+            d.line((cx + 3 * sx, cy, cx + 10 * sx, cy), fill=SKIN["value"])
+            d.line((cx, cy + 3 * sy, cx, cy + 10 * sy), fill=SKIN["value"])
+    if title:
+        tf = font_file(RETRO_TAG_FONT, 14)
+        end = x1 + 12 + round(tf.getlength(title))
+        if subtitle:
+            end += 6 + len(subtitle) * CH[S]
+        c.img.paste(clean.crop((6, 0, end - x1 + 4, clean.height)), (x1 + 6, y1 - 7))
+        c.glow.paste((0, 0, 0), (x1 + 6, y1 - 7, end + 4, y1 + 8))
+        c.d.text((x1 + 10, y1 + 5), title, font=tf, fill=SKIN["value"], anchor="ls")
+        c.g.text((x1 + 10, y1 + 5), title, font=tf, fill=mix(SKIN["value"], (0, 0, 0), 0.5), anchor="ls")
+        if subtitle:
+            c.label(x1 + 16 + round(tf.getlength(title)), y1 + 4, subtitle, (190, 130, 230), glow=False)
+
+
+def neon_floor(c, y0, y1, color, spacing, near=1.0):
+    """Static perspective grid from a horizon at y0 down to y1, fading into the distance."""
+    fh = y1 - y0
+    for i in range(-14, 15):
+        xb = W / 2 + i * spacing
+        for t in range(1, 8):  # brighter towards the viewer: drawn in 7 segments
+            ya, yb = y0 + fh * (t - 1) / 7, y0 + fh * t / 7
+            fx = lambda y: W / 2 + (xb - W / 2) * (y - y0) / fh
+            c.d.line((fx(ya), ya, fx(yb), yb), fill=mix(c.img.getpixel((W // 2, min(H - 1, round(yb)))),
+                                                         color, near * (0.25 + 0.75 * t / 7)))
+    z = 1.0
+    while True:
+        y = y0 + fh * 0.9 / z
+        if y - y0 < 2:
+            break
+        if y < y1:
+            c.d.line((0, round(y), W, round(y)), fill=mix(c.img.getpixel((W // 2, round(y))), color,
+                                                           near * (0.25 + 0.75 * (y - y0) / fh)))
+        z += 1.0
+
+
+def render_background_retrowave(title, user):
+    c = Canvas()
+    up_x, _, uptime_chars = header_layout(title)
+    floor_y = PROMPT_Y
+
+    # night sky over the panels, a neon floor under the prompt
+    vgradient(c, (0, 0, W - 1, floor_y), [(0.0, (12, 3, 30)), (1.0, (34, 6, 58))])
+    vgradient(c, (0, floor_y, W - 1, H - 1), RETRO_FLOOR)
+    neon_floor(c, floor_y, H, (150, 40, 170), W // 8, near=0.55)
+
+    # header band: a sunset from orange to violet
+    for x in range(W):
+        c.d.line((x, 0, x, HEADER_H), fill=stops([(0.0, (255, 150, 60)), (0.5, (255, 60, 160)),
+                                                   (1.0, (150, 60, 230))], x / (W - 1)))
+    c.g.rectangle((0, 0, W, HEADER_H), fill=(90, 20, 70))
+    c.label(6, HEADER_BL, title, SKIN["ink"], glow=False)
+    if uptime_chars:
+        c.label(up_x, HEADER_BL, "UP", (110, 20, 80), glow=False)
+
+    for p, name, subtitle, clk in ((cpu, "CPU", "ZEN2 6C/12T", "CLK GHZ"), (gpu, "GPU", "RDNA2 24CU", "CLK MHZ")):
+        neon_frame(c, p["box"], name, subtitle)
+        c.label(p["col_a"], p["label_bl"], "TEMP", glow=False)
+        c.label(p["xr"], p["label_bl"], clk, anchor="rs", glow=False)
+        c.bar_track(*p["bar"])
+        c.graph_grid(*p["graph"])
+        if p["graph"][3] >= 50:
+            c.label(p["xr"] - 2, p["graph"][1] + 10, "°C 60s", SKIN["dim"], anchor="rs", glow=False)
+
+    neon_frame(c, GRID, "SYS", "MEM / STORAGE / NET")
+    for key, label, sublabel, kind in GRID_LABELS:
+        cl = cells[key]
+        c.label(cl["x0"], cl["label_bl"], label, glow=False)
+        if sublabel:
+            c.label(cl["xr"], cl["label_bl"], sublabel, SKIN["dim"], anchor="rs", glow=False)
+        if kind == "bar":
+            c.bar_track(*cl["bar"], ticks=False)
+        else:
+            c.graph_grid(*cl["spark"])
+    for col in range(1, len(GRID_COLS)):
+        c.dotted_vline(GRID_COLS[col] - (CELL_GAP + 1) // 2, GRID[1] + 8, GRID[3] - 4)
+
+    # the horizon under the panels, then "1UP RAFALE" (the arcade wording is drawn live by Bc250Prompt)
+    c.d.line((0, floor_y, W, floor_y), fill=(255, 110, 220))
+    c.g.line((0, floor_y, W, floor_y), fill=(200, 40, 150))
+    c.label(PROMPT_X, PROMPT_LABEL_BL, prompt_prefix(user, ""), glow=False)
+    return c.finish()
+
+
+def render_splash_retrowave(layer="full"):
+    """layer: "blank" (sky, sun and an empty floor), "nologo" (+ the POST panel) or "full" (+ logo and subtitle).
+    The scrolling grid on the floor is drawn live by sensors_bc250."""
+    sl = SPLASH_LAYOUT
+    c = Canvas()
+    horizon = sl["horizon"]
+    vgradient(c, (0, 0, W - 1, horizon), RETRO_SKY)
+    vgradient(c, (0, horizon, W - 1, H - 1), RETRO_FLOOR)
+    rnd = random.Random(250)  # same stars on every run
+    for _ in range(W * horizon // 900):
+        x, y = rnd.randrange(W), rnd.randrange(int(horizon * 0.7))
+        c.d.point((x, y), fill=mix(c.img.getpixel((x, y)), (255, 230, 255), rnd.uniform(0.3, 0.9)))
+
+    # the sun: warm gradient, cut by widening bands towards the horizon
+    sx, sy, r = sl["sun"]
+    sun = Image.new("RGB", (2 * r + 1, 2 * r + 1))
+    mask = Image.new("L", sun.size, 0)
+    ImageDraw.Draw(mask).ellipse((0, 0, 2 * r, 2 * r), fill=255)
+    sd, md = ImageDraw.Draw(sun), ImageDraw.Draw(mask)
+    for y in range(2 * r + 1):
+        sd.line((0, y, 2 * r, y), fill=stops(RETRO_SUN, y / (2 * r)))
+    y, gap = r - r // 6, 1.0
+    while y < 2 * r:
+        md.rectangle((0, round(y), 2 * r, round(y + gap) - 1), fill=0)
+        y += gap + 6
+        gap += 0.9
+    md.rectangle((0, horizon - (sy - r), 2 * r, 2 * r), fill=0)  # set behind the horizon
+    c.img.paste(sun, (sx - r, sy - r), mask)
+    c.glow.paste(sun.point(lambda v: v // 2), (sx - r, sy - r), mask)
+
+    c.d.line((0, horizon, W, horizon), fill=(255, 120, 230))
+    c.g.line((0, horizon, W, horizon), fill=(255, 60, 190))
+
+    if layer != "blank":
+        c.d.rectangle(sl["panel"], fill=(14, 2, 30))
+        c.g.rectangle(sl["panel"], fill=(0, 0, 0))
+        neon_frame(c, sl["panel"], "SYSTEM CHECK")
+        c.label(sl["label_x"], sl["progress_bl"], "LOADING", glow=False)
+        x, y, w, h = sl["bar"]
+        c.d.rectangle((x - 2, y - 2, x + w + 1, y + h + 1), outline=SKIN["dim"])
+
+    if layer == "full":
+        logo = retro_logo(LOGO)
+        cx, cy = sl["logo_center"]
+        face = Image.new("L", (W, H), 0)
+        ImageDraw.Draw(face).text((cx, cy), LOGO, font=logo["font"], fill=255, anchor="mm")
+        rim = face.filter(ImageFilter.MaxFilter(5))
+        shadow = Image.new("L", (W, H), 0)
+        shadow.paste(rim, (3, 3))
+        c.img.paste(SKIN["ink"], (0, 0, W, H), shadow)
+        c.img.paste(SKIN["mid"], (0, 0, W, H), rim)
+        c.glow.paste(mix(SKIN["mid"], (0, 0, 0), 0.2), (0, 0, W, H), rim)
+        chrome = Image.new("RGB", (W, H))
+        top, bottom = face.getbbox()[1], face.getbbox()[3]
+        cd = ImageDraw.Draw(chrome)
+        for y in range(top, bottom + 1):
+            cd.line((0, y, W, y), fill=stops(RETRO_CHROME, (y - top) / max(1, bottom - top)))
+        c.img.paste(chrome, (0, 0), face)
+        c.glow.paste((0, 0, 0), (0, 0, W, H), face)  # the letters stay crisp, only the rim glows
+
+        sub = spaced(SUBTITLE)
+        f = retro_subtitle_font(sub)
+        c.d.text((W // 2, sl["sub_bl"]), sub, font=f, fill=SKIN["value"], anchor="ms",
+                 stroke_width=2, stroke_fill=SKIN["ink"])
+        c.g.text((W // 2, sl["sub_bl"]), sub, font=f, fill=mix(SKIN["value"], (0, 0, 0), 0.5), anchor="ms")
+    return c.finish()
+
+
 # ---------------------------------------------------------------------------------------------------------------------
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate a BC-250 theme for turing-smart-screen-python")
@@ -709,6 +954,8 @@ if __name__ == "__main__":
     FONTS_DIR = Path(args.app).expanduser().resolve() / "res" / "fonts"
     if not (FONTS_DIR / FONT).is_file():
         parser.error(f"{FONTS_DIR / FONT} not found: is --app a turing-smart-screen-python folder?")
+    if args.theme == "retrowave" and not (FONTS_DIR / RETRO_LOGO_FONT).is_file():
+        parser.error(f"{FONTS_DIR / RETRO_LOGO_FONT} not found: the retrowave theme needs release 3.10 or newer")
     set_layout(args.portrait, args.theme)
     THEME_DIR = FONTS_DIR.parent / "themes" / SKIN["folder"]
     THEME_DIR.mkdir(parents=True, exist_ok=True)
@@ -726,6 +973,9 @@ if __name__ == "__main__":
         cut = LOGO[:max_w // 12]
         LOGO = cut.rsplit(" ", 1)[0] if " " in cut.strip() else cut  # at a word boundary when possible
         print(f"note: --logo shortened to '{LOGO}' to fit the splash")
+    if SKIN_NAME == "retrowave":
+        while len(LOGO) > 1 and font_file(RETRO_LOGO_FONT, 16).getlength(LOGO) > max_w:
+            LOGO = LOGO[:-1].rstrip()
     if len(spaced(SUBTITLE)) > (W - 12) // CH[S]:
         SUBTITLE = SUBTITLE[:(W - 12) // CH[S] // 2]
         print(f"note: --subtitle shortened to '{SUBTITLE}' to fit the splash")
@@ -740,12 +990,20 @@ if __name__ == "__main__":
         render_splash_gameboy(title, prompt).save(THEME_DIR / "splash.png")
         render_splash_gameboy(title, prompt, logo=False).save(THEME_DIR / "splash_nologo.png")
         render_splash_gameboy(title, prompt, logo=False, menu=False).save(THEME_DIR / "splash_blank.png")
+    elif SKIN_NAME == "retrowave":
+        render_background_retrowave(title, args.user).save(THEME_DIR / "background.png")
+        full, nologo = render_splash_retrowave("full"), render_splash_retrowave("nologo")
+        RETRO_REVEAL_BOX = ImageChops.difference(full, nologo).getbbox() or (0, 0, 1, 1)
+        full.save(THEME_DIR / "splash.png")
+        nologo.save(THEME_DIR / "splash_nologo.png")
+        render_splash_retrowave("blank").save(THEME_DIR / "splash_blank.png")
     else:
         render_background_phosphor(title, prompt).save(THEME_DIR / "background.png")
         render_splash_phosphor(title, prompt).save(THEME_DIR / "splash.png")
         render_splash_phosphor(title, prompt, logo=False).save(THEME_DIR / "splash_nologo.png")
     names = {"phosphor": "BC250-Phosphor - retro P1 phosphor terminal",
-             "gameboy": "BC250-GameBoy - 4-shade handheld RPG status screen"}
+             "gameboy": "BC250-GameBoy - 4-shade handheld RPG status screen",
+             "retrowave": "BC250-Retrowave - neon synthwave sunset"}
     header = (f"# {names[SKIN_NAME]} for an AMD BC-250 Steam Machine\n"
               f"# Turing 3.5\" {'portrait' if PORTRAIT else 'landscape'}. GENERATED by make_theme.py: "
               "edit the script or its options and re-run it.\n"
