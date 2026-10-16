@@ -1313,6 +1313,7 @@ class _Logo3D:
     homography (PIL's PERSPECTIVE transform), drawn far-to-near: dim back face, darker sides, bright front face with a
     sweeping glint, then bloom and scanlines to match the CRT look."""
     DEPTH, LAYERS, CAMERA = 14, 8, 620.0
+    POSE = (math.radians(-14), math.radians(12))  # yaw, pitch: turned enough to show the extrusion
 
     def __init__(self, spec: dict):
         from PIL import Image, ImageDraw
@@ -1373,17 +1374,22 @@ class _Logo3D:
               glint_width: int = 26):
         from PIL import Image, ImageChops, ImageDraw, ImageFilter
         canvas = self.bg.copy()
-        layers = []
-        for i in range(self.LAYERS + 1):
-            depth = self.DEPTH * i / self.LAYERS
-            mask, distance = self._layer(depth, yaw, pitch)
-            if i == 0:
-                color = None  # front face, drawn with its own texture below
-            elif i == self.LAYERS:
-                color = _dim(self.mid, 0.55)  # back face
-            else:
-                color = _dim(self.mid, 0.30 + 0.25 * (1 - i / self.LAYERS))  # extrusion sides, darker deeper
-            layers.append((distance, i, mask, color))
+        cache = self.__dict__.setdefault("_layers", {})
+        if (yaw, pitch) not in cache:  # the logo holds a pose: project its layers once
+            layers = []
+            for i in range(self.LAYERS + 1):
+                depth = self.DEPTH * i / self.LAYERS
+                mask, distance = self._layer(depth, yaw, pitch)
+                if i == 0:
+                    color = None  # front face, drawn with its own texture below
+                elif i == self.LAYERS:
+                    color = _dim(self.mid, 0.55)  # back face
+                else:
+                    color = _dim(self.mid, 0.30 + 0.25 * (1 - i / self.LAYERS))  # extrusion sides, darker deeper
+                layers.append((distance, i, mask, color))
+            cache.clear()
+            cache[(yaw, pitch)] = layers
+        layers = cache[(yaw, pitch)]
         front_mask = None
         for distance, i, mask, color in sorted(layers, key=lambda layer: -layer[0]):  # far to near
             if color is None:
@@ -1407,44 +1413,28 @@ class _Logo3D:
                                     .point(lambda v: min(255, int(v * glow_level))))
         return ImageChops.multiply(canvas, self.scan)
 
-    def sway(self, lcd):
-        """One frame of the idle animation: a slow 3D sway with a periodic glint."""
+    def shine(self, lcd):
+        """One frame of the idle animation: the logo holds its 3D pose while a band of light sweeps across it every
+        1.6 s. Moving the logo itself would resend all of it each frame (a few fps on the screen's link); the sweep
+        only changes the band, so it runs smoothly."""
         t = time.monotonic() - self.t0
-        # gentle and slow: every frame redraws the whole logo, so on the screen's link it runs at ~10-15 fps, where
-        # small steps still look smooth
-        yaw = math.radians(16) * math.sin(2 * math.pi * t / 4.2)
-        pitch = math.radians(9) + math.radians(3) * math.sin(2 * math.pi * t / 2.9)
-        self.pose = (yaw, pitch)
-        lcd.DisplayPILImage(self.frame(yaw, pitch, (t / 1.7) % 1.6), self.x, self.y)
+        k = (t % 1.6) / 0.6 - 0.1
+        glint = k if k <= 1.1 else 2.0  # 2.0: off the face
+        if glint == 2.0 and getattr(self, "_dark", False):
+            return
+        self._dark = glint == 2.0
+        lcd.DisplayPILImage(self.frame(*self.POSE, glint), self.x, self.y)
 
     def ignite(self, lcd, flare_level=None):
-        """Finale, readable all along: ease to face the viewer, a strong light sweep across the letters, then a
-        bloom flare (with a short backlight pulse when flare_level is given) settling to the steady glow."""
-        yaw0, pitch0 = getattr(self, "pose", (0.0, math.radians(10)))
-
-        run = _Splash._animate
-
-        # 1. settle: from the current sway pose to flat, easing out
-        run(0.4, lambda t: lcd.DisplayPILImage(
-            self.frame(yaw0 * (1 - t) ** 3, pitch0 * (1 - t) ** 3, 2.0), self.x, self.y))
-        # 2. light sweep across the face
-        run(0.5, lambda t: lcd.DisplayPILImage(
-            self.frame(0.0, 0.0, -0.1 + 1.2 * t, glint_strength=235, glint_width=46), self.x, self.y))
-
-        # 3. flare: bloom up and back down, the backlight pulsing at the peak
-        pulsed = {"up": False, "down": False}
-
-        def flare(t):
-            if flare_level and not pulsed["up"] and t > 0.2:
-                lcd.SetBrightness(min(100, round(flare_level * 1.3)))
-                pulsed["up"] = True
-            if flare_level and pulsed["up"] and not pulsed["down"] and t > 0.6:
-                lcd.SetBrightness(flare_level)
-                pulsed["down"] = True
-            lcd.DisplayPILImage(self.frame(0.0, 0.0, 2.0, glow=0.45 + 0.95 * math.sin(math.pi * t)), self.x, self.y)
-
-        run(0.45, flare)
-        if flare_level and not pulsed["down"]:
+        """Finale: a strong, wide sweep of light across the letters, then a backlight flare (when flare_level is
+        given): both cheap on the link, so the finale is as smooth on the screen as in the preview."""
+        _Splash._animate(0.5, lambda t: lcd.DisplayPILImage(
+            self.frame(*self.POSE, -0.1 + 1.2 * t, glint_strength=235, glint_width=46), self.x, self.y))
+        if flare_level:
+            lcd.SetBrightness(min(100, round(flare_level * 1.35)))
+            _Splash._wait(0.12)
+            lcd.SetBrightness(round(flare_level * 1.1))
+            _Splash._wait(0.08)
             lcd.SetBrightness(flare_level)
 
 
@@ -1454,7 +1444,7 @@ class _Screen:
     so a frame's cost is its changed area: a glint moving over a still logo costs a band, not the whole logo.
 
     The first full-screen image is timed to log the link speed (journalctl --user -u turing-monitor)."""
-    COMMAND_PX = 600  # one more command costs about as much link time as sending this many extra pixels
+    COMMAND_PX = 150  # one more command costs about as much link time as this many pixels (rev A: ~1.5 ms, 160 KB/s)
     MAX_RECTS = 48  # above this, the neighbours whose union wastes least are joined
     TILE = 16  # rows: tall changes are cut in tiles, so a vertical line doesn't drag a whole box along
 
@@ -1544,8 +1534,9 @@ class _Screen:
 
 
 class _Splash:
-    STEP = 0.28  # seconds per POST line
+    STEP = 0.24  # seconds per POST line
     FRAME = 1 / 30  # shortest time between two animation frames
+    _tick_cost = 0.0  # recent duration of a background animation frame, link included
 
     @staticmethod
     def fit(value: str, chars: int) -> str:
@@ -1636,13 +1627,15 @@ class _Splash:
         end = time.monotonic() + seconds
         while True:
             start = time.monotonic()
+            if start + cls._tick_cost > end:  # no time left for another frame: don't overrun, just wait
+                cls._tick_cost *= 0.6  # (and trust the estimate less: one slow frame must not stop the animation)
+                time.sleep(max(0.0, end - start))
+                break
             _attempt("splash animation", tick)
             cls._wait(0)  # drains the send queue first, so frames go at screen speed
             now = time.monotonic()
-            if now + (now - start) > end:  # no time left for another frame: don't overrun, just wait
-                time.sleep(max(0.0, end - now))
-                break
-            time.sleep(max(0.0, cls.FRAME - (now - start)))
+            cls._tick_cost = 0.5 * cls._tick_cost + 0.5 * (now - start)
+            time.sleep(max(0.0, min(end - now, cls.FRAME - (now - start))))
 
     @classmethod
     def _animate(cls, seconds: float, draw, tick=None):
@@ -1684,7 +1677,7 @@ class _Splash:
         return Image.composite(soft, base, visible)
 
     @classmethod
-    def warm_up(cls, lcd, base, bright, bg):
+    def warm_up(cls, lcd, base, bright, bg, blank=None):
         from library import config
         from PIL import Image, ImageDraw
         import random
@@ -1701,26 +1694,38 @@ class _Splash:
                 cls._run(seconds / steps, tick)
 
         w, h = base.size
+        blank = blank or Image.new("RGB", (w, h), bg)
         snow_start = time.monotonic()
+        streaks = []
 
         def boil():
-            # the snow keeps moving: a fresh noise strip at a random height, and a brighter roll bar sweeping down
-            band = random.randrange(6, 12)
-            lcd.DisplayPILImage(cls._snow((w, band), bright, bg), 0, random.randrange(0, h - band))
-            roll = int(((time.monotonic() - snow_start) * 260) % (h + 16)) - 16
-            top, bottom = max(0, roll), min(h, roll + 16)
-            if bottom - top > 4:
-                lcd.DisplayPILImage(cls._snow((w, bottom - top), bright, bg, gain=1.8), 0, top)
+            # no signal yet: streaks of snow flicker on the dark raster and a bright roll line sweeps down. Each frame
+            # clears the previous streaks and draws new ones (full-screen snow would take seconds to clear again)
+            for x, y, sw, sh in streaks:
+                lcd.DisplayPILImage(blank.crop((x, y, x + sw, y + sh)), x, y)
+            streaks.clear()
+            for _ in range(3):
+                sw, sh = random.randrange(80, 260), random.randrange(3, 9)
+                x, y = random.randrange(0, w - sw), random.randrange(0, h - sh)
+                lcd.DisplayPILImage(cls._snow((sw, sh), bright, bg, gain=1.4), x, y)
+                streaks.append((x, y, sw, sh))
+            roll = int(((time.monotonic() - snow_start) * 300) % h)
+            line = blank.crop((0, roll, w, min(h, roll + 2)))
+            ImageDraw.Draw(line).line((0, 0, w, 0), fill=tuple(c // 2 for c in bright))
+            lcd.DisplayPILImage(line, 0, roll)
+            streaks.append((0, roll, w, line.height))
 
-        # dark tube, no signal: snow on the raster, boiling
+        # dark tube (the one full frame, sent with the backlight off), then the streaks while it warms up
         level(0)
-        lcd.DisplayPILImage(cls._snow((w, h), bright, bg), 0, 0)
-        cls._run(0.25, boil)
+        lcd.DisplayPILImage(blank, 0, 0)
+        cls._run(0.15, boil)
         # high-voltage kick: a short flash, then dim again
         level(0.55)
         cls._run(0.08, boil)
         level(0.08)
-        ramp(0.08, 0.3, 0.6, steps=5, tick=boil)
+        ramp(0.08, 0.3, 0.45, steps=4, tick=boil)
+        for x, y, sw, sh in streaks:
+            lcd.DisplayPILImage(blank.crop((x, y, x + sw, y + sh)), x, y)
 
         # sync lock: the picture locks in from top to bottom behind a bright retrace line, unfocused and small, then
         # rows tear sideways while H-sync settles
@@ -1739,7 +1744,7 @@ class _Splash:
 
         cls._animate(0.45, lock)
         rows_with_content = [r for r in range(8, h - 12, 2) if soft.crop((0, r, w, r + 2)).getextrema()[1][1] > 40]
-        for burst in range(2):
+        for burst in range(1):
             torn = []
             for _ in range(3):
                 y = random.choice(rows_with_content) if rows_with_content else random.randrange(20, h - 30)
@@ -1754,7 +1759,7 @@ class _Splash:
             for y, original in torn:
                 lcd.DisplayPILImage(original, 0, y)
             cls._wait(0.05)
-        ramp(0.55, 0.8, 0.35, steps=4)
+        ramp(0.55, 0.8, 0.25, steps=3)
 
         # focus snap: sharp and full size, brightness overshoots then settles
         lcd.DisplayPILImage(base, 0, 0)
@@ -1798,7 +1803,8 @@ class _Splash:
         status_color = {"OK": bright, "WARN": amber, "WAIT": _dim(amber, 0.7), "HOT!": alert}
 
         # 1. CRT warm-up. Fades use the backlight (one tiny command each), so only three full frames are sent
-        cls.warm_up(lcd, base, bright, bg)
+        blank = _attempt("splash blank", lambda: _Draw.background(spec["IMAGE_BLANK"])) if "IMAGE_BLANK" in spec else None
+        cls.warm_up(lcd, base, bright, bg, blank)
 
         # 2. POST: each line typed with "..." then its status
         def row(index, label, value, status=None):
@@ -1816,7 +1822,7 @@ class _Splash:
             lcd.DisplayPILImage(strip, box[0], box[1])
 
         logo = _attempt("3D logo", lambda: _Logo3D(spec)) if "LOGO_BOX" in spec else None
-        sway = (lambda: logo.sway(lcd)) if logo else None
+        sway = (lambda: logo.shine(lcd)) if logo else None
 
         lines = cls.post_lines(spec)
         for i, (label, value, status) in enumerate(lines):
@@ -1863,8 +1869,8 @@ class _GameBoySplash:
         small = _Draw.font(spec["FONT"], 12)
 
         # 1. blank screen, then the logo drops from above to its place, one band of screen per step
-        lcd.DisplayPILImage(blank, 0, 0)
-        _Splash._wait(0.4)
+        lcd.DisplayPILImage(blank, 0, 0)  # the one full frame (~2 s on a rev A)
+        _Splash._wait(0.1)
         lx, ly, lw, lh = (int(v) for v in spec["LOGO_BOX"])
         logo = base.crop((lx, ly, lx + lw, ly + lh))
         drop = {"top": -lh}
@@ -1890,7 +1896,7 @@ class _GameBoySplash:
         for image in (faded, logo, faded, logo):
             lcd.DisplayPILImage(image, lx, ly)
             _Splash._wait(0.09)
-        _Splash._wait(0.5)
+        _Splash._wait(0.3)
 
         # 3. SYSTEM CHECK menu: a cursor walks down the live values
         lcd.DisplayPILImage(base, 0, 0)
@@ -1928,12 +1934,12 @@ class _GameBoySplash:
             bar = nologo.crop((x, y, x + bw, y + bh))
             ImageDraw.Draw(bar).rectangle((0, 0, round(bw * step / 10) - 1, bh - 1), fill=mid)
             lcd.DisplayPILImage(bar, x, y)
-            _Splash._wait(0.07)
+            _Splash._wait(0.05)
         warnings = sum(1 for _, _, st in lines if st in ("WARN", "HOT!"))
         verdict = "BOOT OK!" if not warnings else f"BOOT OK! {warnings} WARNING{'S' * (warnings > 1)}"
         status_bl = int(spec.get("STATUS_BL", 290))
         box = (int(spec["LABEL_X"]) - 14, status_bl - 11, int(spec["STATUS_XR"]) + 2, status_bl + 4)
-        for blink in range(6):
+        for blink in range(4):
             strip = nologo.crop(box)
             d = ImageDraw.Draw(strip)
             d.text((int(spec["LABEL_X"]) - box[0], status_bl - box[1]), verdict, font=small, fill=dark, anchor="ls")
@@ -1970,10 +1976,10 @@ class _RetrowaveSplash:
             z = 1.0 - phase / cls.PHASES
             while True:
                 y = fh * 0.9 / z
-                if y < fh * 0.12:  # further away the lines are too close to be seen moving: each one would cost a row
+                if y < fh * 0.2:  # further away the lines are too close to be seen moving: each one would cost rows
                     break
                 if y < fh:
-                    d.line((0, round(y), w, round(y)), fill=int(255 * (0.2 + 0.8 * y / fh)), width=2 if y > fh * 0.45 else 1)
+                    d.line((0, round(y), w, round(y)), fill=int(255 * (0.2 + 0.8 * y / fh)), width=2 if y > fh * 0.6 else 1)
                 z += 1.0
             masks.append(mask)
         return masks
@@ -2059,8 +2065,8 @@ class _RetrowaveSplash:
         state["floor"] = floor(0)
         frame.paste(state["floor"], (0, horizon))
         lcd.DisplayPILImage(frame, 0, 0)
-        for i in range(1, 9):
-            level((1 - math.exp(-3 * i / 8)) / (1 - math.exp(-3)))
+        for i in range(1, 7):
+            level((1 - math.exp(-3 * i / 6)) / (1 - math.exp(-3)))
             _Splash._run(0.075, tick)
 
         # 2. a laser line scans the logo and subtitle in, top to bottom
@@ -2088,7 +2094,7 @@ class _RetrowaveSplash:
                 pulsed["up"] = True
             glint(-0.1 + 1.2 * t, strength=240, width=48)
 
-        _Splash._animate(0.6, sweep, grid_tick)
+        _Splash._animate(0.5, sweep, grid_tick)
         level(1.0)
         lcd.DisplayPILImage(logo, lx1, ly1)
         state["glint_from"] = time.monotonic() + 1.0
@@ -2154,7 +2160,7 @@ class _RetrowaveSplash:
                                    fill=amber if warnings else bright, anchor="ls")
         lcd.DisplayPILImage(strip, box[0], box[1])
         press_bl = footer_bl or status_bl
-        for blink in range(5):
+        for blink in range(4):
             box, strip = strip_at(press_bl)
             d = ImageDraw.Draw(strip)
             if not footer_bl:

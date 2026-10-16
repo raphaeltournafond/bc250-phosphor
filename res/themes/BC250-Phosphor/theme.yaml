@@ -32,6 +32,7 @@ bc250_splash:
   LOGO_SIZE: 72
   LOGO_BL: 84
   LOGO_BOX: [96, 21, 288, 75]
+  IMAGE_BLANK: splash_blank.png
 display:
   DISPLAY_SIZE: '3.5"'
   DISPLAY_ORIENTATION: landscape

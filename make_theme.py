@@ -371,6 +371,8 @@ def build_theme(title, prompt, user):
     if SKIN_NAME != "retrowave":  # the pixel-font logo
         splash.update({"LOGO_SIZE": logo_size(LOGO), "LOGO_BL": logo_baseline(logo_size(LOGO)),
                        "LOGO_BOX": list(sl["logo_box"])})
+    if SKIN_NAME == "phosphor":  # the dark tube the warm-up starts from: only the text has to be sent after it
+        splash["IMAGE_BLANK"] = "splash_blank.png"
     if SKIN_NAME == "gameboy":
         splash.update({"STYLE": "gameboy", "IMAGE_BLANK": "splash_blank.png", "LIGHT": rgb(DMG[1])})
     if SKIN_NAME == "retrowave":
@@ -1001,6 +1003,7 @@ if __name__ == "__main__":
         render_background_phosphor(title, prompt).save(THEME_DIR / "background.png")
         render_splash_phosphor(title, prompt).save(THEME_DIR / "splash.png")
         render_splash_phosphor(title, prompt, logo=False).save(THEME_DIR / "splash_nologo.png")
+        Canvas().finish().save(THEME_DIR / "splash_blank.png")
     names = {"phosphor": "BC250-Phosphor - retro P1 phosphor terminal",
              "gameboy": "BC250-GameBoy - 4-shade handheld RPG status screen",
              "retrowave": "BC250-Retrowave - neon synthwave sunset"}

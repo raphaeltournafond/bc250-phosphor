@@ -74,7 +74,7 @@ That's it: the screen now starts with the boot animation every time the BC-250 b
 
 ![phosphor boot](res/themes/BC250-Phosphor/splash_preview.gif) ![game boy boot](res/themes/BC250-GameBoy/splash_preview.gif) ![retrowave boot](res/themes/BC250-Retrowave/splash_preview.gif)
 
-- **Boot** (about 7 s): a self-test of real values (CPU, memory, GPU, temperatures, Steam library, network, Steam client).
+- **Boot** (about 8-10 s on a 3.5" rev A, including ~2 s to blank the screen; the previews above are recorded at its real speed, 160 KB/s): a self-test of real values (CPU, memory, GPU, temperatures, Steam library, network, Steam client).
   - **Phosphor:** a CRT warm-up, then the "Phosphor BIOS" with a 3D logo.
   - **Game Boy:** your logo drops in, then a SYSTEM CHECK menu with a ▶ cursor and an HP-style loading bar.
   - **Retrowave:** the backlight fades up on a sunset and a scrolling neon grid, a laser scans in the chrome logo, then a SYSTEM CHECK panel with a pink-to-cyan loading bar and a blinking PRESS START.
