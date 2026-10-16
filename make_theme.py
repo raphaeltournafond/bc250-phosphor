@@ -1,6 +1,6 @@
 # BC-250 theme generator for turing-smart-screen-python: renders the artwork and writes theme.yaml of one theme
 # from a single layout, so static art and live widgets always line up.
-#     python3 make_theme.py --app ~/turing-smart-screen-python [--theme phosphor|gameboy|retrowave] [--portrait] [...]
+#     python3 make_theme.py --app ~/turing-smart-screen-python [--theme phosphor|gameboy|retrowave|videotex] [--portrait] [...]
 #     python3 make_theme.py --help
 # The theme is written to <app>/res/themes/BC250-<Theme> (fonts are read from <app>/res/fonts).
 #
@@ -47,6 +47,9 @@ SPLASH = True  # boot screen played before the dashboard
 
 # --- Colours ----------------------------------------------------------------------------------------------------------
 DMG = [(155, 188, 15), (139, 172, 15), (48, 98, 48), (15, 56, 15)]  # Game Boy DMG: lightest .. darkest
+# videotex: the 8 flat colours (black, red, green, yellow, blue, magenta, cyan, white), a touch softer than pure RGB
+VT = dict(k=(0, 0, 0), r=(230, 40, 40), g=(40, 200, 70), y=(250, 220, 50), b=(40, 80, 220), m=(220, 60, 210),
+          c=(50, 210, 230), w=(245, 245, 245))
 SKINS = {
     # P1 phosphor terminal: bright green on near-black
     "phosphor": dict(folder="BC250-Phosphor", bg=(2, 9, 4), dim=(18, 78, 38), mid=(46, 170, 88),
@@ -59,6 +62,10 @@ SKINS = {
     "retrowave": dict(folder="BC250-Retrowave", bg=(16, 4, 36), dim=(96, 40, 140), mid=(255, 70, 190),
                       value=(90, 235, 255), accent=(255, 176, 60), cold=(90, 235, 255), hot=(255, 60, 190),
                       alert=(255, 96, 36), ink=(24, 4, 40), grid_dot=(54, 20, 84), palette=None),
+    # Videotex: 8 flat colours only (every computed colour snaps to them), heat in green -> yellow -> red steps
+    "videotex": dict(folder="BC250-Videotex", bg=VT["k"], dim=VT["b"], mid=VT["c"], value=VT["w"], accent=VT["y"],
+                     cold=VT["g"], hot=VT["y"], alert=VT["r"], ink=VT["k"], grid_dot=VT["b"], bar=VT["g"],
+                     palette=list(VT.values())),
 }
 SKIN_NAME = "phosphor"
 SKIN = SKINS[SKIN_NAME]
@@ -125,6 +132,25 @@ def gameboy_card(x1, y1, x2, y2):
     }
 
 
+def videotex_page(x1, y1, x2, y2, col_a_offset):
+    """A CPU/GPU videotex "page": a coloured double-height title band, LOAD (big) | TEMP | CLK, bar, mosaic chart."""
+    x0, xr = x1 + 12, x2 - 12
+    return {
+        "box": (x1, y1, x2, y2),
+        "band": (x1, y1, x2, y1 + 24),
+        "x0": x0,
+        "xr": xr,
+        "col_a": x0 + col_a_offset,
+        "label_bl": y1 + 36,
+        "load": dict(x=x0, bl=y1 + 60, size=L, right=False),
+        "temp": dict(x=x0 + col_a_offset, bl=y1 + 60, right=False),
+        "clk": dict(x=xr, bl=y1 + 60, right=True),
+        "tag": (xr - 36, y1 + 5, 36, 14),  # HOT! flashes at the right end of the title band
+        "bar": (x0, y1 + 66, xr - x0, 8),
+        "graph": (x0, y1 + 80, xr - x0, (y2 - 4) - (y1 + 80)),
+    }
+
+
 def cell(x0, y0, width):
     """A system-grid cell: label row, value row, then a bar or a sparkline."""
     return {"x0": x0, "xr": x0 + width, "y0": y0,
@@ -138,7 +164,7 @@ def set_layout(portrait: bool, skin: str = "phosphor"):
     global PROMPT_Y, PROMPT_LABEL_BL, PROMPT_VALUE_BL, PROMPT_COLS_BL, PROMPT_X, PROMPT_XR, PROMPT_AREA
     global PROMPT_COL1_XR, PROMPT_COLS, SPLASH_LAYOUT
     PORTRAIT, SKIN_NAME, SKIN = portrait, skin, SKINS[skin]
-    gameboy, retro = skin == "gameboy", skin == "retrowave"
+    gameboy, retro, videotex = skin == "gameboy", skin == "retrowave", skin == "videotex"
     card = gameboy_card if gameboy else (lambda *box: phosphor_panel(*box, col_a_offset=130 if portrait else 100))
     if not portrait:  # 480x320: CPU and GPU side by side, 3x2 grid, one-line prompt
         W, H = 480, 320
@@ -167,6 +193,15 @@ def set_layout(portrait: bool, skin: str = "phosphor"):
                 horizon=134, sun=(240, 124, 60), logo_center=(240, 62), logo_max_w=330, sub_bl=116,
                 panel=(56, 146, 424, 314), row_bl=168, row_step=14, label_x=68, value_x=116, status_xr=412,
                 progress_bl=272, bar=(128, 265, 412 - 128, 7), status_bl=296)
+        if videotex:  # a 12 px grid: 40 columns; pages side by side, the SYS grid, a ticker band
+            cpu, gpu = videotex_page(0, 16, 240, 148, 96), videotex_page(240, 16, 480, 148, 96)
+            GRID, CELL_W, CELL_GAP = (2, 156, 478, 268), 144, 12
+            PROMPT_Y, PROMPT_LABEL_BL, PROMPT_VALUE_BL = 268, 283, 311
+            SPLASH_LAYOUT = dict(
+                band=(0, 16, 480, 112), logo_center=(240, 56), logo_max_w=432, sub_bl=104, head_bl=128,
+                row_bl=145, row_step=14, label_x=12, value_x=84, status_xr=468, progress_bl=252,
+                bar=(96, 244, 468 - 96, 8), status_bl=276, footer=(0, 296, 480, 316), dial_x=48,
+                dial_bl=(160, 196, 216, 236, 256))
     else:  # 320x480: panels stacked, 2x3 grid, prompt with its values on a row of their own
         W, H = 320, 480
         DATE_XR = None  # no room for the date in the header
@@ -194,13 +229,25 @@ def set_layout(portrait: bool, skin: str = "phosphor"):
                 horizon=200, sun=(160, 186, 70), logo_center=(160, 118), logo_max_w=290, sub_bl=178,
                 panel=(12, 236, 308, 470), row_bl=262, row_step=18, label_x=26, value_x=74, status_xr=294,
                 progress_bl=402, bar=(86, 395, 294 - 86, 7), status_bl=432, footer_bl=456)
+        if videotex:
+            cpu, gpu = videotex_page(0, 16, 320, 136, 130), videotex_page(0, 136, 320, 256, 130)
+            GRID = (0, 264, 320, 420)
+            PROMPT_Y, PROMPT_LABEL_BL, PROMPT_VALUE_BL, PROMPT_COLS_BL = 420, 434, 455, 476
+            SPLASH_LAYOUT = dict(
+                band=(0, 16, 320, 148), logo_center=(160, 70), logo_max_w=296, sub_bl=136, head_bl=166,
+                row_bl=186, row_step=18, label_x=12, value_x=84, status_xr=308, progress_bl=334,
+                bar=(96, 326, 308 - 96, 8), status_bl=364, footer=(0, 452, 320, 476), dial_x=24,
+                dial_bl=(200, 240, 262, 284, 306))
     CLOCK_XR = W - 6
     GRID_COLS = [GRID[0] + 10 + i * (CELL_W + CELL_GAP) for i in range(grid_cols)]
     grid_rows_y = [GRID[1] + 8 + i * 48 for i in range(grid_rows)]
     cells = {name: cell(GRID_COLS[col], grid_rows_y[row], CELL_W) for name, col, row in order}
-    PROMPT_X, PROMPT_XR = (18, W - 18) if gameboy else (14, W - 14)
-    # redrawn as a whole by Bc250Prompt: phosphor = below a dotted line, gameboy = inside the dialog box
+    PROMPT_X, PROMPT_XR = (18, W - 18) if gameboy else (12, W - 12) if videotex else (14, W - 14)
+    # redrawn as a whole by Bc250Prompt: phosphor = below a dotted line, gameboy = inside the dialog box,
+    # videotex = the whole ticker band
     PROMPT_AREA = (6, PROMPT_Y + 3, W - 12, H - PROMPT_Y - 6) if gameboy else (6, PROMPT_Y + 2, W - 12, H - PROMPT_Y - 2)
+    if videotex:
+        PROMPT_AREA = (0, PROMPT_Y, W, H - PROMPT_Y)
     # portrait: values on their own row, in two half-width columns (small label left, value right)
     half = (PROMPT_XR - PROMPT_X - CELL_GAP) // 2
     PROMPT_COLS = [[PROMPT_X, PROMPT_X + half], [PROMPT_XR - half, PROMPT_XR]] if portrait else None
@@ -252,13 +299,14 @@ def text(x, baseline, size, chars, color=None, unit=True, right=False, extra_hei
 
 def bar(x, y, w, h, color=None, max_value=100):
     return {"SHOW": True, "X": x, "Y": y, "WIDTH": w, "HEIGHT": h, "MIN_VALUE": 0, "MAX_VALUE": max_value,
-            "BAR_COLOR": rgb(color or (SKIN["mid"] if SKIN_NAME == "gameboy" else SKIN["value"])),
+            "BAR_COLOR": rgb(color or SKIN.get("bar") or (SKIN["mid"] if SKIN_NAME == "gameboy" else SKIN["value"])),
             "BAR_OUTLINE": False, "BACKGROUND_IMAGE": "background.png"}
 
 
 def line(x, y, w, h, max_value=100, history=48, autoscale=False, color=None):
     return {"SHOW": True, "X": x, "Y": y, "WIDTH": w, "HEIGHT": h, "MIN_VALUE": 0, "MAX_VALUE": max_value,
-            "HISTORY_SIZE": history, "AUTOSCALE": autoscale, "LINE_COLOR": rgb(color or SKIN["value"]),
+            "HISTORY_SIZE": history, "AUTOSCALE": autoscale,
+            "LINE_COLOR": rgb(color or (SKIN["mid"] if SKIN_NAME == "videotex" else SKIN["value"])),
             "LINE_WIDTH": 1, "AXIS": False, "BACKGROUND_IMAGE": "background.png"}
 
 
@@ -281,6 +329,8 @@ def heat_widget(p):
                        "MIN_VALUE": TEMP_GRAPH_MIN, "MAX_VALUE": TEMP_GRAPH_MAX, "AXIS_COLOR": rgb(SKIN["mid"]),
                        "FONT": FONT, "FONT_SIZE": S, "BACKGROUND_IMAGE": "background.png"},
     })
+    if SKIN_NAME == "videotex":  # history as a bar chart of separated mosaic blocks
+        widget["HEAT_GRAPH"]["STYLE"] = "mosaic"
     return widget
 
 
@@ -322,9 +372,20 @@ RETRO_WORDS = {"boot": "BOOTING", "now-playing": "NOW PLAYING", "downloading": "
                "last-session": "LAST GAME", "idle": "PRESS START", "idle-text": "INSERT COIN"}
 
 
+# videotex ticker wording ("EN COURS : Hades II"; idle: "EN VEILLE" / "3615 <CODE>")
+VIDEOTEX_WORDS = {"boot": "CONNEXION", "now-playing": "EN COURS :", "downloading": "TÉLÉCHARGEMENT :",
+                  "installing": "INSTALLATION :", "verifying": "VÉRIFICATION :", "fossilize_replay": "SHADERS :",
+                  "last-session": "DERNIÈRE PARTIE :", "idle": "EN VEILLE"}
+
+
+def videotex_code(logo):
+    """The service code of the boot screen: 3615 + the logo's letters and digits."""
+    return "3615 " + ("".join(ch for ch in logo.upper() if ch.isalnum())[:12] or "BC250")
+
+
 def prompt_prefix(user, prompt):
     """What precedes the live command word in the prompt's label row."""
-    return {"gameboy": user.upper(), "retrowave": f"1UP {user.upper()}"}.get(SKIN_NAME, prompt)
+    return {"gameboy": user.upper(), "retrowave": f"1UP {user.upper()}", "videotex": ""}.get(SKIN_NAME, prompt)
 
 
 def build_theme(title, prompt, user):
@@ -332,23 +393,30 @@ def build_theme(title, prompt, user):
     net_spark = dict(max_value=10_000_000_000, autoscale=True)
     ram, ssd, pwr, rx, tx, ping = (cells[k] for k in ("ram", "ssd", "pwr", "rx", "tx", "ping"))
     sl = SPLASH_LAYOUT
-    header_ink = SKIN["value"] if SKIN_NAME == "gameboy" else SKIN["ink"]
+    header_ink = SKIN["value"] if SKIN_NAME in ("gameboy", "videotex") else SKIN["ink"]
+    clock_ink = SKIN["accent"] if SKIN_NAME == "videotex" else header_ink  # teletext: the time in yellow
     date = {"INTERVAL": 1}
     if DATE_XR:
         date["DAY"] = {"TEXT": text(DATE_XR, HEADER_BL, S, 14, header_ink, right=True, FORMAT="EEE dd MMM")}
-    date["HOUR"] = {"TEXT": text(CLOCK_XR, HEADER_BL, S, CLOCK_CHARS, header_ink, right=True, FORMAT="HH:mm:ss")}
+    date["HOUR"] = {"TEXT": text(CLOCK_XR, HEADER_BL, S, CLOCK_CHARS, clock_ink, right=True, FORMAT="HH:mm:ss")}
     prompt_spec = {
         "AREA": {"X": PROMPT_AREA[0], "Y": PROMPT_AREA[1], "WIDTH": PROMPT_AREA[2],
                  "HEIGHT": PROMPT_AREA[3], "BACKGROUND_IMAGE": "background.png"},
         "FONT": FONT, "BRIGHT": rgb(SKIN["value"]), "MID": rgb(SKIN["mid"]), "DIM": rgb(SKIN["dim"]),
         "AMBER": rgb(SKIN["accent"]),
         "LABEL_BL": PROMPT_LABEL_BL, "VALUE_BL": PROMPT_VALUE_BL,
-        "CMD_X": PROMPT_X + (len(prompt_prefix(user, prompt)) + 1) * CH[S], "TEXT_X": PROMPT_X,
+        "CMD_X": PROMPT_X + (len(prompt_prefix(user, prompt)) + 1) * CH[S] if prompt_prefix(user, prompt) else PROMPT_X,
+        "TEXT_X": PROMPT_X,
     }
     if SKIN_NAME == "gameboy":
         prompt_spec.update({"CMD_WORDS": GAMEBOY_WORDS, "CURSOR": "▼", "LABEL_COLOR": rgb(SKIN["mid"])})
     if SKIN_NAME == "retrowave":
         prompt_spec.update({"CMD_WORDS": RETRO_WORDS, "LABEL_COLOR": rgb(SKIN["accent"])})
+    if SKIN_NAME == "videotex":
+        prompt_spec.update({"CMD_WORDS": dict(VIDEOTEX_WORDS, **{"idle-text": videotex_code(LOGO)}),
+                            "LABEL_COLOR": rgb(SKIN["accent"]), "PROGRESS_STYLE": "mosaic",
+                            "COL_WORDS": {"DONE": "FAIT", "ETA": "RESTE", "RATE": "DÉBIT", "SESSION": "DURÉE",
+                                          "TIME": "DURÉE", "PEAK C/G": "PIC C/G"}})
     if PROMPT_COLS:  # portrait: the name gets the whole row, values go on the row below
         prompt_spec.update({"COLS_BL": PROMPT_COLS_BL, "COLS": PROMPT_COLS,
                             "MAX_CHARS": (PROMPT_XR - PROMPT_X) // CH[M] - 1,
@@ -368,7 +436,7 @@ def build_theme(title, prompt, user):
         "BAR_Y": sl["bar"][1], "BAR_W": sl["bar"][2], "BAR_H": sl["bar"][3],
         "IMAGE_NOLOGO": "splash_nologo.png", "LOGO_TEXT": LOGO,
     }
-    if SKIN_NAME != "retrowave":  # the pixel-font logo
+    if SKIN_NAME not in ("retrowave", "videotex"):  # the pixel-font logo
         splash.update({"LOGO_SIZE": logo_size(LOGO), "LOGO_BL": logo_baseline(logo_size(LOGO)),
                        "LOGO_BOX": list(sl["logo_box"])})
     if SKIN_NAME == "phosphor":  # the dark tube the warm-up starts from: only the text has to be sent after it
@@ -382,6 +450,10 @@ def build_theme(title, prompt, user):
                        "LOGO_BOX": list(logo["face_box"]), "REVEAL_BOX": list(RETRO_REVEAL_BOX),
                        "HORIZON": sl["horizon"], "PANEL": list(sl["panel"]), "GRID_COLOR": rgb(SKIN["mid"]),
                        "GRID_SPACING": W // 8, "FOOTER_BL": sl.get("footer_bl", 0)})
+    if SKIN_NAME == "videotex":
+        splash.update({"STYLE": "videotex", "IMAGE_BLANK": "splash_blank.png", "CODE": videotex_code(LOGO),
+                       "GREEN": rgb(VT["g"]), "BLUE": rgb(VT["b"]), "STATUS_CELL": [W - 18, 2, 12, 13],
+                       "DIAL_X": sl["dial_x"], "DIAL_BL": list(sl["dial_bl"]), "FOOTER": list(sl["footer"])})
     load = lambda p: text(p["load"]["x"], p["load"]["bl"], p["load"]["size"], 4, right=p["load"]["right"])
     clock = lambda p, **kw: text(p["clk"]["x"], p["clk"]["bl"], M, 4, right=p["clk"]["right"], **kw)
     theme = {
@@ -552,6 +624,8 @@ class Canvas:
     def finish(self):
         if SKIN_NAME == "gameboy":
             return self.lcd_grid(self.img)
+        if SKIN_NAME == "videotex":  # flat colours, nothing else
+            return self.img
         retro = SKIN_NAME == "retrowave"  # neon: stronger bloom, lighter scanlines and vignette
         bloom = self.glow.filter(ImageFilter.GaussianBlur(3))
         img = ImageChops.add(self.img, bloom.point(lambda v: int(v * (0.7 if retro else 0.55))))
@@ -926,6 +1000,110 @@ def render_splash_retrowave(layer="full"):
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+# Videotex artwork
+# ---------------------------------------------------------------------------------------------------------------------
+VT_PAGES = ((VT["b"], "CPU", "ZEN2 6C/12T", "FREQ GHZ"), (VT["m"], "GPU", "RDNA2 24CU", "FREQ MHZ"))
+VT_LABELS = {"ram": ("MÉMOIRE", "UTIL."), "ssd": ("DISQUE JEUX", "LIBRE"), "pwr": ("PUISS. APU", "MEM GPU"),
+             "rx": ("↓ RÉCEPTION", None), "tx": ("↑ ÉMISSION", None), "ping": ("PING", None)}
+
+
+def mosaic_text(c, text, center, color, max_w, shadow=None):
+    """Big letters made of separated mosaic blocks, as videotex drew its titles: each pixel of the pixel font
+    becomes a block, with a one-pixel gap around it. Returns the block size used."""
+    mask = Image.new("L", (len(text) * CH[S] + 4, 16), 0)
+    ImageDraw.Draw(mask).text((1, 1), text, font=font(S), fill=255)
+    box = mask.getbbox()
+    if not box:
+        return None
+    mask = mask.crop(box)
+    gw, gh = mask.size
+    bw = next((b for b in (8, 6, 5, 4, 3, 2) if gw * b <= max_w), 2)
+    bh = max(2, round(bw * 0.75))
+    x0, y0 = center[0] - gw * bw // 2, center[1] - gh * bh // 2
+    gap = 1 if bw >= 4 else 0
+    for layer, (dx, dy) in ((shadow, (max(1, bw // 3), max(1, bh // 3))), (color, (0, 0))):
+        if layer is None:
+            continue
+        for j in range(gh):
+            for i in range(gw):
+                if mask.getpixel((i, j)) > 127:
+                    x, y = x0 + i * bw + dx, y0 + j * bh + dy
+                    c.d.rectangle((x, y, x + bw - 1 - gap, y + bh - 1 - gap), fill=layer)
+    return bw, bh
+
+
+def mosaic_track(c, x, y, w, h, color):
+    """The empty track of a bar: a row of separated blocks."""
+    for bx in range(x, x + w, 6):
+        c.d.rectangle((bx, y, min(bx + 4, x + w - 1), y + h - 1), fill=color)
+
+
+def render_background_videotex(title):
+    c = Canvas()
+    up_x, _, uptime_chars = header_layout(title)
+    c.label(6, HEADER_BL, title, VT["w"], glow=False)  # the teletext header line: page, service, date, time
+    if uptime_chars:
+        c.label(up_x, HEADER_BL, "UP", VT["c"], glow=False)
+
+    for p, (band_color, name, subtitle, clk) in zip((cpu, gpu), VT_PAGES):
+        c.d.rectangle(p["band"], fill=band_color)
+        bx1, by1, bx2, by2 = p["band"]
+        c.label(p["x0"], by1 + 21, name, VT["w"], size=M, glow=False)  # double height, as videotex titles were
+        c.label(p["x0"] + 4 * CH[M], by1 + 16, subtitle, VT["y"], glow=False)
+        c.label(p["col_a"], p["label_bl"], "TEMP", VT["c"], glow=False)
+        c.label(p["xr"], p["label_bl"], clk, VT["c"], anchor="rs", glow=False)
+        mosaic_track(c, *p["bar"], VT["b"])
+        gx, gy, gw, gh = p["graph"]
+        c.d.line((gx, gy + gh - 1, gx + gw - 1, gy + gh - 1), fill=VT["b"])
+
+    c.d.rectangle((0, GRID[1] - 8, W, GRID[1] + 3), fill=VT["c"])
+    c.label(12, GRID[1] + 2, "SYS  MÉMOIRE / STOCKAGE / RÉSEAU", VT["k"], glow=False)
+    for key, (label, sublabel) in VT_LABELS.items():
+        cl = cells[key]
+        c.label(cl["x0"], cl["label_bl"], label, VT["c"], glow=False)
+        if sublabel:
+            c.label(cl["xr"], cl["label_bl"], sublabel, VT["b"], anchor="rs", glow=False)
+        if key in ("ram", "ssd", "pwr"):
+            mosaic_track(c, *cl["bar"], VT["b"])
+
+    c.d.rectangle((0, PROMPT_Y, W, H), fill=VT["b"])  # the ticker band, written live by Bc250Prompt
+    return c.finish()
+
+
+def render_splash_videotex(title, layer="full"):
+    """layer: "blank" (the terminal before connecting: an F in the status corner) or "full" (the 3615 service page,
+    which the boot draws row by row; the dialling and the self-test values are drawn live by sensors_bc250)."""
+    sl = SPLASH_LAYOUT
+    c = Canvas()
+    sx = W - 18
+    connected = layer == "full"
+    c.d.rectangle((sx, 2, sx + 11, 14), fill=VT["g"] if connected else VT["w"])
+    c.label(sx + 6, 12, "C" if connected else "F", VT["k"], anchor="ms", glow=False)
+    if not connected:
+        return c.finish()
+
+    code = videotex_code(LOGO)
+    c.label(6, HEADER_BL, code, VT["w"], glow=False)
+    c.d.rectangle(sl["band"], fill=VT["b"])
+    mosaic_text(c, LOGO, sl["logo_center"], VT["y"], sl["logo_max_w"], shadow=VT["r"])
+    c.label(W // 2, sl["sub_bl"], spaced(SUBTITLE), VT["w"], anchor="ms", glow=False)
+
+    head = sl["head_bl"]
+    c.d.rectangle((0, head - 10, W, head + 3), fill=VT["c"])
+    c.label(sl["label_x"], head, "SERVICE", VT["k"], glow=False)
+    c.label(sl["status_xr"], head, "ÉTAT", VT["k"], anchor="rs", glow=False)
+    c.label(sl["label_x"], sl["progress_bl"], "CHARGEMENT", VT["y"], glow=False)
+    mosaic_track(c, *sl["bar"], VT["b"])
+
+    fx1, fy1, fx2, fy2 = sl["footer"]
+    c.d.rectangle(sl["footer"], fill=VT["m"])
+    c.label(fx1 + 12, fy2 - 5, f"Connecté au {code}"[:(fx2 - fx1 - 80) // CH[S]], VT["w"], glow=False)
+    c.d.rectangle((fx2 - 54, fy1 + 3, fx2 - 12, fy2 - 3), fill=VT["w"])
+    c.label(fx2 - 33, fy2 - 6, "ENVOI", VT["k"], anchor="ms", glow=False)
+    return c.finish()
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate a BC-250 theme for turing-smart-screen-python")
     parser.add_argument("--app", required=True, help="turing-smart-screen-python folder (fonts are read, theme written)")
@@ -984,7 +1162,7 @@ if __name__ == "__main__":
     POWER_LOW, POWER_HIGH = args.pwr_low, args.pwr_high
     DIM_AFTER, DIM_BRIGHTNESS, NIGHT, NIGHT_MODE = args.dim_after, args.dim_brightness, args.night, args.night_mode
 
-    title = (args.title or f"{LOGO}::{args.user.upper()}")[:28]
+    title = (args.title or (f"P250 {LOGO}" if SKIN_NAME == "videotex" else f"{LOGO}::{args.user.upper()}"))[:28]
     prompt = f"{args.user}@{args.host}:~$"[:40]
 
     if SKIN_NAME == "gameboy":
@@ -992,6 +1170,10 @@ if __name__ == "__main__":
         render_splash_gameboy(title, prompt).save(THEME_DIR / "splash.png")
         render_splash_gameboy(title, prompt, logo=False).save(THEME_DIR / "splash_nologo.png")
         render_splash_gameboy(title, prompt, logo=False, menu=False).save(THEME_DIR / "splash_blank.png")
+    elif SKIN_NAME == "videotex":
+        render_background_videotex(title).save(THEME_DIR / "background.png")
+        render_splash_videotex(title, "full").save(THEME_DIR / "splash.png")
+        render_splash_videotex(title, "blank").save(THEME_DIR / "splash_blank.png")
     elif SKIN_NAME == "retrowave":
         render_background_retrowave(title, args.user).save(THEME_DIR / "background.png")
         full, nologo = render_splash_retrowave("full"), render_splash_retrowave("nologo")
@@ -1006,7 +1188,8 @@ if __name__ == "__main__":
         Canvas().finish().save(THEME_DIR / "splash_blank.png")
     names = {"phosphor": "BC250-Phosphor - retro P1 phosphor terminal",
              "gameboy": "BC250-GameBoy - 4-shade handheld RPG status screen",
-             "retrowave": "BC250-Retrowave - neon synthwave sunset"}
+             "retrowave": "BC250-Retrowave - neon synthwave sunset",
+             "videotex": "BC250-Videotex - 40-column, 8-colour videotex pages"}
     header = (f"# {names[SKIN_NAME]} for an AMD BC-250 Steam Machine\n"
               f"# Turing 3.5\" {'portrait' if PORTRAIT else 'landscape'}. GENERATED by make_theme.py: "
               "edit the script or its options and re-run it.\n"
