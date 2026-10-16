@@ -66,7 +66,7 @@ if [[ "$UNINSTALL" == 1 ]]; then
   bash "$SRC/install_autostart.sh" "$APP" --remove || true
   sed -i 's/^\(  THEME:\).*/\1 3.5inchTheme2/' "$APP/config.yaml"
   sed -i '/# BC250-Phosphor theme sensors/d; /sensors_bc250 import/d' "$APP/library/sensors/sensors_custom.py"
-  rm -rf "$APP/res/themes/BC250-Phosphor" "$APP/library/sensors/sensors_bc250.py" "$APP/bc250_check.py"
+  rm -rf "$APP"/res/themes/BC250-* "$APP/library/sensors/sensors_bc250.py" "$APP/bc250_check.py"
   say "Uninstalled: the app is back on its default theme (your options stay in $STATE_DIR)."
   exit 0
 fi

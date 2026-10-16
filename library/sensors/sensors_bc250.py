@@ -20,6 +20,8 @@
 #   - Bc250ApuPower (HEAT_TEXT, HEAT_BAR): watts and bar on the same green -> orange -> red scale (COLD / HOT / ALERT)
 #   - boot splash (bc250_splash in theme.yaml): a BIOS-style POST with live values, played once before the
 #     dashboard is drawn (hooked onto the app's display_static_images, no change to the app itself)
+#   - bc250_palette in theme.yaml (Game Boy theme): every colour computed here snaps to its shades, and "dim"
+#     means towards its background (lighter on a Game Boy, darker on the phosphor terminal)
 #   - Bc250Screen (SCREEN): dims the display after DIM_AFTER minutes without game or download, sleeps at NIGHT
 #
 # Every sensor degrades to "--" when its source is missing: a custom sensor that raises would stop all the
@@ -163,6 +165,33 @@ def _lerp(a, b, t):
     return tuple(round(x + (y - x) * t) for x, y in zip(a, b))
 
 
+class _Palette:
+    """Optional fixed palette of the theme (bc250_palette in theme.yaml): None for free colours."""
+    _loaded = False
+    colors = None
+    bg = None
+
+    @classmethod
+    def get(cls):
+        if not cls._loaded:
+            cls._loaded = True
+            try:
+                from library import config
+                spec = (config.THEME_DATA or {}).get("bc250_palette") or {}
+            except Exception:
+                spec = {}
+            if spec.get("COLORS"):
+                cls.colors = [_Draw.color(c) for c in spec["COLORS"]]
+                cls.bg = _Draw.color(spec.get("BG"), cls.colors[0])
+        return cls
+
+    @classmethod
+    def snap(cls, color):
+        if cls.get().colors is None:
+            return color
+        return min(cls.colors, key=lambda c: sum((a - b) ** 2 for a, b in zip(c, color)))
+
+
 def heat_color(value: float, spec: dict):
     """COLD_COLOR up to COLD, fading to HOT_COLOR at HOT, then to ALERT_COLOR at ALERT."""
     cold, hot = float(spec.get("COLD", 40)), float(spec.get("HOT", 70))
@@ -171,13 +200,17 @@ def heat_color(value: float, spec: dict):
     hot_c = _Draw.color(spec.get("HOT_COLOR"), (255, 140, 30))
     alert_c = _Draw.color(spec.get("ALERT_COLOR"), (255, 60, 40))
     if value >= hot and alert > hot:
-        return _lerp(hot_c, alert_c, min(1.0, (value - hot) / (alert - hot)))
+        return _Palette.snap(_lerp(hot_c, alert_c, min(1.0, (value - hot) / (alert - hot))))
     t = 0.0 if hot <= cold else max(0.0, min(1.0, (value - cold) / (hot - cold)))
-    return _lerp(cold_c, hot_c, t)
+    return _Palette.snap(_lerp(cold_c, hot_c, t))
 
 
 def _dim(color, k: float):
-    return tuple(int(c * k) for c in color)
+    """A fainter version of color: towards black, or towards the palette's background when the theme has one."""
+    palette = _Palette.get()
+    if palette.colors is None:
+        return tuple(int(c * k) for c in color)
+    return palette.snap(_lerp(palette.bg, color, k))
 
 
 def draw_heat_text(spec: dict, box: dict, value: Optional[float], flash: bool, unit: str = "°C"):
@@ -187,13 +220,17 @@ def draw_heat_text(spec: dict, box: dict, value: Optional[float], flash: bool, u
     font = _Draw.font(box["FONT"], box["FONT_SIZE"])
     text = f"--{unit}" if _is_nan(value) else f"{value:.0f}{unit}"
     color = _dim(heat_color(0, spec), 0.6) if _is_nan(value) else heat_color(value, spec)
+    right = box.get("ALIGN") == "right"
+    width = d.textlength(text, font=font)
     if flash:
         # inverse video: the value punched out of a solid alert block
-        width = d.textlength(text, font=font)
-        d.rectangle((0, 0, width + 3, box["HEIGHT"] - 1), fill=_Draw.color(spec.get("ALERT_COLOR"), (255, 60, 40)))
+        left = box["WIDTH"] - width - 4 if right else 0
+        d.rectangle((left, 0, left + width + 3, box["HEIGHT"] - 1),
+                    fill=_Draw.color(spec.get("ALERT_COLOR"), (255, 60, 40)))
         color = _Draw.color(spec.get("INK"), (2, 14, 6))
-    d.text((1 if flash else 0, box.get("BASELINE", box["FONT_SIZE"] * 10 // 12)), text, font=font, fill=color,
-           anchor="ls")
+    x = (box["WIDTH"] - (2 if flash else 0)) if right else (1 if flash else 0)
+    d.text((x, box.get("BASELINE", box["FONT_SIZE"] * 10 // 12)), text, font=font, fill=color,
+           anchor="rs" if right else "ls")
     _Draw.show(image, box)
 
 
@@ -1136,7 +1173,7 @@ class Bc250Prompt:
                     "cols": [("TIME", _duration(last["seconds"])),
                              ("PEAK C/G", _peaks(last["peak_cpu"], last["peak_gpu"]))],
                     "progress": None}
-        return {"cmd": "now-playing", "text": "idle", "cols": [], "progress": None}
+        return {"cmd": "idle", "text": "idle", "cols": [], "progress": None}
 
     @staticmethod
     def draw(spec: dict, state: dict, cursor: bool):
@@ -1149,6 +1186,15 @@ class Bc250Prompt:
         bright, mid, dim = (_Draw.color(spec.get(k)) for k in ("BRIGHT", "MID", "DIM"))
         accent = _Draw.color(spec.get(state.get("accent", "MID")), mid)
         label_bl, value_bl = spec["LABEL_BL"] - oy, spec["VALUE_BL"] - oy
+        label_c = _Draw.color(spec["LABEL_COLOR"]) if spec.get("LABEL_COLOR") else dim
+        cmd, text = state["cmd"], state["text"] or ""
+        words = spec.get("CMD_WORDS")
+        if words:  # e.g. Game Boy: "IS PLAYING", idle shown as "IS RESTING" / "Zzz"
+            if cmd == "idle":
+                text = words.get("idle-text", text)
+            cmd = words.get(cmd, cmd.upper())
+        elif cmd == "idle":
+            cmd = "now-playing"
 
         if state["progress"] is not None:
             # progress bar filling the value row behind the text, on the bright scanlines
@@ -1158,7 +1204,7 @@ class Bc250Prompt:
                     d.line((0, py, right, py), fill=_dim(accent, 0.45))
             d.line((0, area["HEIGHT"] - 2, right, area["HEIGHT"] - 2), fill=accent)
 
-        d.text((spec["CMD_X"] - ox, label_bl), state["cmd"], font=small, fill=dim, anchor="ls")
+        d.text((spec["CMD_X"] - ox, label_bl), cmd, font=small, fill=label_c, anchor="ls")
 
         amber = _Draw.color(spec.get("AMBER"))
         if "COLS_BL" in spec:
@@ -1166,21 +1212,21 @@ class Bc250Prompt:
             cols_bl = int(spec["COLS_BL"]) - oy
             for i, ((label, value), (xl, xr)) in enumerate(zip(state["cols"], spec["COLS"])):
                 warn = i == len(state["cols"]) - 1 and state.get("alert_col")  # e.g. a stalled shader job
-                d.text((xl - ox, cols_bl), label, font=small, fill=dim, anchor="ls")
+                d.text((xl - ox, cols_bl), label, font=small, fill=label_c, anchor="ls")
                 d.text((xr - ox, cols_bl), value, font=big, fill=amber if warn else bright, anchor="rs")
         else:
             # landscape: columns on the value row, laid out from the right edge
             right_edges = [spec["COL2_XR"] - ox, spec["COL1_XR"] - ox]
             for i, ((label, value), xr) in enumerate(zip(reversed(state["cols"]), right_edges)):
-                d.text((xr, label_bl), label, font=small, fill=dim, anchor="rs")
+                d.text((xr, label_bl), label, font=small, fill=label_c, anchor="rs")
                 warn = i == 0 and state.get("alert_col")  # e.g. a stalled shader job
                 d.text((xr, value_bl), value, font=big, fill=amber if warn else bright, anchor="rs")
 
         room = spec["MAX_CHARS"] if len(state["cols"]) > 1 else spec["MAX_CHARS_WIDE"]
-        text = state["text"] or ""
         if len(text) > room:
             text = text[:room - 1] + "~"
-        d.text((spec["TEXT_X"] - ox, value_bl), text + ("_" if cursor else ""), font=big, fill=bright, anchor="ls")
+        mark = spec.get("CURSOR", "_")
+        d.text((spec["TEXT_X"] - ox, value_bl), text + (mark if cursor else ""), font=big, fill=bright, anchor="ls")
         _Draw.show(image, area)
 
     def as_numeric(self) -> float:
@@ -1606,6 +1652,9 @@ class _Splash:
         spec = config.THEME_DATA.get("bc250_splash") or {}
         if not spec.get("ENABLED") or any(a.startswith(("-t", "--theme-screenshots")) for a in sys.argv[1:]):
             return
+        if spec.get("STYLE") == "gameboy":
+            _GameBoySplash.play(lcd, spec)
+            return
         base = _Draw.background(spec.get("IMAGE", "splash.png"))
         w, h = base.size
         bright, mid, dim, amber, alert, bg = (_Draw.color(spec.get(k)) for k in
@@ -1661,6 +1710,101 @@ class _Splash:
             target = max(1, min(100, int(config.CONFIG_DATA["display"].get("BRIGHTNESS", 20))))
             _attempt("3D logo finale", lambda: logo.ignite(lcd, target))
         cls._wait(0.9 if warnings else 0.5)
+
+
+class _GameBoySplash:
+    """Game Boy boot: the logo drops down to the centre on a blank screen, flashes, then a SYSTEM CHECK menu where a
+    cursor walks down the same live POST values, an HP-style loading bar fills, and BOOT OK! waits with a blinking
+    arrow. Four shades only (from the theme), no backlight tricks: the original had none."""
+
+    @classmethod
+    def play(cls, lcd, spec: dict):
+        from PIL import ImageDraw
+        blank = _Draw.background(spec.get("IMAGE_BLANK", "splash_blank.png"))
+        nologo = _Draw.background(spec.get("IMAGE_NOLOGO", "splash_nologo.png"))
+        base = _Draw.background(spec.get("IMAGE", "splash.png"))
+        w, h = base.size
+        dark, mid, light = (_Draw.color(spec.get(k)) for k in ("BRIGHT", "MID", "LIGHT"))
+        small = _Draw.font(spec["FONT"], 12)
+
+        # 1. blank screen, then the logo drops from above to its place, one band of screen per step
+        lcd.DisplayPILImage(blank, 0, 0)
+        _Splash._wait(0.4)
+        lx, ly, lw, lh = (int(v) for v in spec["LOGO_BOX"])
+        logo = base.crop((lx, ly, lx + lw, ly + lh))
+        steps = 22
+        previous_top = -lh
+        for i in range(1, steps + 1):
+            top = round(-lh + (ly + lh) * i / steps)  # from fully above the screen to its final place
+            band_top, band_bottom = max(0, previous_top), min(h, top + lh)
+            if band_bottom > band_top:
+                band = blank.crop((lx, band_top, lx + lw, band_bottom))
+                band.paste(logo, (0, top - band_top))
+                lcd.DisplayPILImage(band, lx, band_top)
+            previous_top = top
+            _Splash._wait(0.04)
+
+        # 2. the "chime": the logo flashes lighter twice
+        faded = logo.point(lambda v: v)
+        faded_px, base_px = faded.load(), logo.load()
+        for y in range(lh):
+            for x in range(lw):
+                if base_px[x, y] == dark:
+                    faded_px[x, y] = mid
+        for image in (faded, logo, faded, logo):
+            lcd.DisplayPILImage(image, lx, ly)
+            _Splash._wait(0.09)
+        _Splash._wait(0.5)
+
+        # 3. SYSTEM CHECK menu: a cursor walks down the live values
+        lcd.DisplayPILImage(base, 0, 0)
+        _Splash._wait(0.3)
+        status_text = {"OK": "OK", "WARN": "!!", "WAIT": "..", "HOT!": "HOT!"}
+
+        def row(index, label, value, status=None, cursor=False):
+            baseline = int(spec["ROW_BL"]) + index * int(spec["ROW_STEP"])
+            box = (int(spec["LABEL_X"]) - 14, baseline - 11, int(spec["STATUS_XR"]) + 2, baseline + 4)
+            strip = nologo.crop(box)
+            d = ImageDraw.Draw(strip)
+            ox, oy = box[0], box[1]
+            if cursor:
+                d.text((int(spec["LABEL_X"]) - 12 - ox, baseline - oy), "▶", font=small, fill=dark, anchor="ls")
+            d.text((int(spec["LABEL_X"]) - ox, baseline - oy), label, font=small, fill=dark, anchor="ls")
+            d.text((int(spec["VALUE_X"]) - ox, baseline - oy), _Splash.fit(value, int(spec.get("VALUE_CHARS", 40))),
+                   font=small, fill=mid, anchor="ls")
+            if status:
+                d.text((int(spec["STATUS_XR"]) - ox, baseline - oy), status_text.get(status, status), font=small,
+                       fill=dark, anchor="rs")
+            lcd.DisplayPILImage(strip, box[0], box[1])
+
+        lines = _Splash.post_lines(spec)
+        for i, (label, value, status) in enumerate(lines):
+            if i:
+                row(i - 1, *lines[i - 1], cursor=False)  # the cursor leaves the previous line
+            row(i, label, value, cursor=True)
+            _Splash._wait(_Splash.STEP * 0.55)
+            row(i, label, value, status, cursor=True)
+            _Splash._wait(_Splash.STEP * 0.45)
+
+        # 4. HP-style loading bar, then BOOT OK! with the blinking dialog arrow
+        x, y, bw, bh = (int(spec[k]) for k in ("BAR_X", "BAR_Y", "BAR_W", "BAR_H"))
+        for step in range(1, 11):
+            bar = nologo.crop((x, y, x + bw, y + bh))
+            ImageDraw.Draw(bar).rectangle((0, 0, round(bw * step / 10) - 1, bh - 1), fill=mid)
+            lcd.DisplayPILImage(bar, x, y)
+            _Splash._wait(0.07)
+        warnings = sum(1 for _, _, st in lines if st in ("WARN", "HOT!"))
+        verdict = "BOOT OK!" if not warnings else f"BOOT OK! {warnings} WARNING{'S' * (warnings > 1)}"
+        status_bl = int(spec.get("STATUS_BL", 290))
+        box = (int(spec["LABEL_X"]) - 14, status_bl - 11, int(spec["STATUS_XR"]) + 2, status_bl + 4)
+        for blink in range(6):
+            strip = nologo.crop(box)
+            d = ImageDraw.Draw(strip)
+            d.text((int(spec["LABEL_X"]) - box[0], status_bl - box[1]), verdict, font=small, fill=dark, anchor="ls")
+            if blink % 2 == 0:
+                d.text((box[2] - box[0] - 4, status_bl - box[1]), "▼", font=small, fill=dark, anchor="rs")
+            lcd.DisplayPILImage(strip, box[0], box[1])
+            _Splash._wait(0.22)
 
 
 def _install_splash_hook():

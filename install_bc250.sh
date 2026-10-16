@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Installs the BC250-Phosphor theme into a turing-smart-screen-python checkout.
+# Installs a BC-250 theme (Phosphor or Game Boy) into a turing-smart-screen-python checkout.
 # Usage: ./install_bc250.sh /path/to/turing-smart-screen-python [options]
+#   --theme NAME   phosphor (green terminal) or gameboy (4-shade RPG screen)   (default: phosphor)
 #   --user NAME    user in the "user@host:~$" prompt   (default: your login, $(whoami))
 #   --host NAME    host in the prompt                  (default: $(hostname -s))
 #   --title TEXT   header text                         (default: <LOGO>::<USER>)
@@ -23,24 +24,32 @@ set -euo pipefail
 SRC="$(cd "$(dirname "$0")" && pwd)"
 REPO="${1:-}"
 if [[ -z "$REPO" || ! -f "$REPO/main.py" || ! -f "$REPO/library/sensors/sensors_custom.py" ]]; then
-  sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '3,21p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 1
 fi
 shift
 
 GEN_ARGS=(--user "$(whoami)" --host "$(hostname -s 2>/dev/null || hostname)")
+THEME_NAME=phosphor
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --theme) THEME_NAME="${2:?--theme needs a value}"; shift 2 ;;
     --user|--host|--title|--logo|--subtitle|--cold|--hot|--alert|--pwr-low|--pwr-high|--dim-after|--dim-brightness|--night|--night-mode) GEN_ARGS+=("$1" "${2:?$1 needs a value}"); shift 2 ;;
     --no-splash|--portrait) GEN_ARGS+=("$1"); shift ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
 
-cp -r "$SRC/res/themes/BC250-Phosphor" "$REPO/res/themes/"
+case "$THEME_NAME" in
+  phosphor) THEME_FOLDER=BC250-Phosphor ;;
+  gameboy) THEME_FOLDER=BC250-GameBoy ;;
+  *) echo "Unknown theme: $THEME_NAME (phosphor or gameboy)" >&2; exit 1 ;;
+esac
+
+for theme in "$SRC"/res/themes/BC250-*; do cp -r "$theme" "$REPO/res/themes/"; done
 cp "$SRC/library/sensors/sensors_bc250.py" "$REPO/library/sensors/"
 cp "$SRC/bc250_check.py" "$REPO/"
-echo "Copied theme, sensors and bc250_check.py"
+echo "Copied themes, sensors and bc250_check.py"
 
 # Expose the BC-250 sensor classes to the theme's CUSTOM section
 CUSTOM="$REPO/library/sensors/sensors_custom.py"
@@ -58,7 +67,7 @@ for candidate in "$REPO/.venv/bin/python" "$REPO/venv/bin/python" python3; do
   fi
 done
 if [[ -n "$PYTHON" ]]; then
-  "$PYTHON" "$REPO/res/themes/BC250-Phosphor/make_theme.py" "${GEN_ARGS[@]}"
+  "$PYTHON" "$SRC/make_theme.py" --app "$REPO" --theme "$THEME_NAME" "${GEN_ARGS[@]}"
 else
   echo "WARNING: no Python with Pillow found: kept the default 'steam@bc250' artwork." >&2
   echo "         Install the monitor's requirements, then re-run this script." >&2
@@ -66,8 +75,8 @@ fi
 
 # Select the theme
 CONFIG="$REPO/config.yaml"
-sed -i 's/^\(  THEME:\).*/\1 BC250-Phosphor/' "$CONFIG"
-echo "config.yaml: THEME set to BC250-Phosphor"
+sed -i "s/^\(  THEME:\).*/\1 $THEME_FOLDER/" "$CONFIG"
+echo "config.yaml: THEME set to $THEME_FOLDER"
 
 # Point the network widgets at the interface of the default route, unless ETH is already set
 if grep -qE '^  ETH: ""' "$CONFIG"; then
