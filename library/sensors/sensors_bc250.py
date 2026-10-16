@@ -51,7 +51,7 @@ REPO_DIR = Path(__file__).resolve().parents[2]
 HISTORY_SIZE = 60
 APU_POWER_BAR_MAX_W = 250
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("turing.bc250")  # a child of the app's logger: same output (journal), same level
 
 
 def _read(path: str) -> Optional[str]:
@@ -1410,8 +1410,10 @@ class _Logo3D:
     def sway(self, lcd):
         """One frame of the idle animation: a slow 3D sway with a periodic glint."""
         t = time.monotonic() - self.t0
-        yaw = math.radians(24) * math.sin(2 * math.pi * t / 3.4)
-        pitch = math.radians(10) + math.radians(4) * math.sin(2 * math.pi * t / 2.3)
+        # gentle and slow: every frame redraws the whole logo, so on the screen's link it runs at ~10-15 fps, where
+        # small steps still look smooth
+        yaw = math.radians(16) * math.sin(2 * math.pi * t / 4.2)
+        pitch = math.radians(9) + math.radians(3) * math.sin(2 * math.pi * t / 2.9)
         self.pose = (yaw, pitch)
         lcd.DisplayPILImage(self.frame(yaw, pitch, (t / 1.7) % 1.6), self.x, self.y)
 
@@ -1420,14 +1422,7 @@ class _Logo3D:
         bloom flare (with a short backlight pulse when flare_level is given) settling to the steady glow."""
         yaw0, pitch0 = getattr(self, "pose", (0.0, math.radians(10)))
 
-        def run(seconds, draw):
-            start = time.monotonic()
-            while True:
-                t = min(1.0, (time.monotonic() - start) / seconds)
-                draw(t)
-                _Splash._wait(0.03)
-                if t >= 1.0:
-                    return
+        run = _Splash._animate
 
         # 1. settle: from the current sway pose to flat, easing out
         run(0.4, lambda t: lcd.DisplayPILImage(
@@ -1453,8 +1448,104 @@ class _Logo3D:
             lcd.SetBrightness(flare_level)
 
 
+class _Screen:
+    """What the splash draws through: keeps a copy of what is on the screen and sends only the rectangles that really
+    changed. The screen gets every pixel over a slow serial link (a full frame takes the better part of a second),
+    so a frame's cost is its changed area: a glint moving over a still logo costs a band, not the whole logo.
+
+    The first full-screen image is timed to log the link speed (journalctl --user -u turing-monitor)."""
+    COMMAND_PX = 600  # one more command costs about as much link time as sending this many extra pixels
+    MAX_RECTS = 48  # above this, the neighbours whose union wastes least are joined
+    TILE = 16  # rows: tall changes are cut in tiles, so a vertical line doesn't drag a whole box along
+
+    def __init__(self, lcd, width: int, height: int):
+        self.lcd, self.width, self.height = lcd, width, height
+        self.shadow = None  # what is on the screen (numpy HxWx3) once a full frame has been sent
+        self.sent = 0  # bytes
+
+    def SetBrightness(self, level: int):
+        self.lcd.SetBrightness(level)
+
+    @classmethod
+    def _rects(cls, changed):
+        """Rectangles (x1, y1, x2, y2) covering the True cells of a 2D mask: bands of changed rows, cut in tiles of
+        TILE rows, each split where a wide run of columns is unchanged; runs lined up vertically are joined again."""
+        import numpy
+        rows = numpy.flatnonzero(changed.any(axis=1))
+        if rows.size == 0:
+            return []
+
+        def runs(index, gap):
+            """Runs of consecutive indexes, joined across holes of up to `gap` (worth sending to save a command)."""
+            breaks = numpy.flatnonzero(numpy.diff(index) > gap + 1)
+            return list(zip(numpy.r_[index[0], index[breaks + 1]], numpy.r_[index[breaks], index[-1]] + 1))
+
+        bands = runs(rows, cls.COMMAND_PX // changed.shape[1])
+        rects, open_rects = [], {}  # open_rects: (x1, x2) -> rect ending on the row where the next tile starts
+        for y1, y2 in bands:
+            for t1 in range(y1, y2, cls.TILE):
+                t2 = min(y2, t1 + cls.TILE)
+                cols = numpy.flatnonzero(changed[t1:t2].any(axis=0))
+                if cols.size == 0:
+                    continue
+                for x1, x2 in runs(cols, cls.COMMAND_PX // (t2 - t1)):
+                    above = open_rects.get((x1, x2))
+                    if above is not None and above[3] == t1:
+                        above[3] = t2
+                    else:
+                        above = [x1, t1, x2, t2]
+                        rects.append(above)
+                    open_rects[(x1, x2)] = above
+        rects.sort(key=lambda r: (r[1], r[0]))
+        if len(rects) > 4 * cls.MAX_RECTS:  # too scattered to sort out cheaply: whole bands
+            rects = []
+            for y1, y2 in bands:
+                cols = numpy.flatnonzero(changed[y1:y2].any(axis=0))
+                rects.append((cols[0], y1, cols[-1] + 1, y2))
+        rects = [list(r) for r in rects]
+        area = lambda r: (r[2] - r[0]) * (r[3] - r[1])
+        while len(rects) > cls.MAX_RECTS:  # each command costs too: join the neighbours whose union wastes least
+            unions = [[min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])]
+                      for a, b in zip(rects, rects[1:])]
+            waste = [area(u) - area(a) - area(b) for u, a, b in zip(unions, rects, rects[1:])]
+            i = waste.index(min(waste))
+            rects[i:i + 2] = [unions[i]]
+        return rects
+
+    def _send(self, image, x, y):
+        self.lcd.DisplayPILImage(image, x, y)
+        self.sent += image.width * image.height * 2
+
+    def DisplayPILImage(self, image, x: int = 0, y: int = 0, *args, **kwargs):
+        import numpy
+        image = image.convert("RGB")
+        w, h = min(image.width, self.width - x), min(image.height, self.height - y)
+        if w <= 0 or h <= 0:
+            return
+        if (w, h) != image.size:
+            image = image.crop((0, 0, w, h))
+        new = numpy.asarray(image)
+        if self.shadow is None:
+            if (x, y, w, h) != (0, 0, self.width, self.height):
+                self._send(image, x, y)  # what is around it is unknown: nothing to compare with yet
+                return
+            start = time.monotonic()
+            self._send(image, 0, 0)
+            _Splash._wait(0)
+            seconds = time.monotonic() - start
+            logger.info("BC250: screen link %.0f KB/s (full frame in %.2f s)", w * h * 2 / 1000 / max(seconds, 1e-3),
+                        seconds)
+            self.shadow = new.copy()
+            return
+        old = self.shadow[y:y + h, x:x + w]
+        for x1, y1, x2, y2 in self._rects((new != old).any(axis=2)):
+            self._send(image.crop((x1, y1, x2, y2)), x + x1, y + y1)
+        old[...] = new
+
+
 class _Splash:
     STEP = 0.28  # seconds per POST line
+    FRAME = 1 / 30  # shortest time between two animation frames
 
     @staticmethod
     def fit(value: str, chars: int) -> str:
@@ -1544,10 +1635,30 @@ class _Splash:
             return
         end = time.monotonic() + seconds
         while True:
+            start = time.monotonic()
             _attempt("splash animation", tick)
-            cls._wait(0.03)  # drains the send queue first, so frames go at screen speed
-            if time.monotonic() >= end:
+            cls._wait(0)  # drains the send queue first, so frames go at screen speed
+            now = time.monotonic()
+            if now + (now - start) > end:  # no time left for another frame: don't overrun, just wait
+                time.sleep(max(0.0, end - now))
                 break
+            time.sleep(max(0.0, cls.FRAME - (now - start)))
+
+    @classmethod
+    def _animate(cls, seconds: float, draw, tick=None):
+        """draw(p) with p going from 0 to exactly 1 over `seconds`: on a slow link frames are skipped, the animation
+        never gets longer. tick() (a background animation) runs once per frame too."""
+        start = time.monotonic()
+        while True:
+            frame_start = time.monotonic()
+            p = min(1.0, (frame_start - start) / seconds)
+            _attempt("splash animation", lambda: draw(p))
+            if tick:
+                _attempt("splash animation", tick)
+            cls._wait(0)
+            if p >= 1.0:
+                return
+            time.sleep(max(0.0, cls.FRAME - (time.monotonic() - frame_start)))
 
     @staticmethod
     def _snow(size, bright, bg, gain=1.0):
@@ -1564,15 +1675,13 @@ class _Splash:
 
     @staticmethod
     def _unfocused(base, bg):
-        """The picture as it first locks: out of focus, over-bright and a little small (high voltage still low)."""
+        """The picture as it first locks: out of focus and over-bright (high voltage still low). The dark background
+        is left exactly as it is, so the focus snap only has to send the text and lines again, not the whole screen."""
         from PIL import Image, ImageChops, ImageEnhance, ImageFilter
-        w, h = base.size
         soft = ImageEnhance.Brightness(base.filter(ImageFilter.GaussianBlur(2.4))).enhance(1.35)
         soft = ImageChops.add(soft, base.filter(ImageFilter.GaussianBlur(7)).point(lambda v: v // 2))
-        small = soft.resize((round(w * 0.94), round(h * 0.94)), Image.BILINEAR)
-        frame = Image.new("RGB", (w, h), bg)
-        frame.paste(small, ((w - small.width) // 2, (h - small.height) // 2))
-        return frame
+        visible = ImageChops.difference(soft, base).convert("L").point(lambda v: 255 if v > 10 else 0)
+        return Image.composite(soft, base, visible)
 
     @classmethod
     def warm_up(cls, lcd, base, bright, bg):
@@ -1595,12 +1704,11 @@ class _Splash:
         snow_start = time.monotonic()
 
         def boil():
-            # the snow keeps moving: fresh noise strips at random heights, and a brighter roll bar sweeping down
-            for _ in range(2):
-                band = random.randrange(10, 26)
-                lcd.DisplayPILImage(cls._snow((w, band), bright, bg), 0, random.randrange(0, h - band))
-            roll = int(((time.monotonic() - snow_start) * 260) % (h + 40)) - 40
-            top, bottom = max(0, roll), min(h, roll + 40)
+            # the snow keeps moving: a fresh noise strip at a random height, and a brighter roll bar sweeping down
+            band = random.randrange(6, 12)
+            lcd.DisplayPILImage(cls._snow((w, band), bright, bg), 0, random.randrange(0, h - band))
+            roll = int(((time.monotonic() - snow_start) * 260) % (h + 16)) - 16
+            top, bottom = max(0, roll), min(h, roll + 16)
             if bottom - top > 4:
                 lcd.DisplayPILImage(cls._snow((w, bottom - top), bright, bg, gain=1.8), 0, top)
 
@@ -1614,10 +1722,22 @@ class _Splash:
         level(0.08)
         ramp(0.08, 0.3, 0.6, steps=5, tick=boil)
 
-        # sync lock: the picture appears unfocused and small, then rows tear sideways while H-sync settles
+        # sync lock: the picture locks in from top to bottom behind a bright retrace line, unfocused and small, then
+        # rows tear sideways while H-sync settles
         soft = cls._unfocused(base, bg)
-        lcd.DisplayPILImage(soft, 0, 0)
-        ramp(0.3, 0.55, 0.3, steps=4)
+        locked = {"rows": 0}
+
+        def lock(p):
+            level(0.3 + 0.25 * p)
+            rows = round(h * p)
+            if rows > locked["rows"]:
+                strip = soft.crop((0, locked["rows"], w, min(h, rows + 2)))
+                if rows < h:
+                    ImageDraw.Draw(strip).line((0, rows - locked["rows"], w, rows - locked["rows"]), fill=bright)
+                lcd.DisplayPILImage(strip, 0, locked["rows"])
+                locked["rows"] = rows
+
+        cls._animate(0.45, lock)
         rows_with_content = [r for r in range(8, h - 12, 2) if soft.crop((0, r, w, r + 2)).getextrema()[1][1] > 40]
         for burst in range(2):
             torn = []
@@ -1652,6 +1772,18 @@ class _Splash:
         spec = config.THEME_DATA.get("bc250_splash") or {}
         if not spec.get("ENABLED") or any(a.startswith(("-t", "--theme-screenshots")) for a in sys.argv[1:]):
             return
+        size = _Draw.background(spec.get("IMAGE", "splash.png")).size
+        lcd = _Screen(lcd, *size)
+        started = time.monotonic()
+        try:
+            cls._play(lcd, spec)
+        finally:
+            logger.info("BC250: boot splash %.1f s, %.0f KB sent", time.monotonic() - started, lcd.sent / 1000)
+
+    @classmethod
+    def _play(cls, lcd, spec: dict):
+        from library import config
+        from PIL import Image, ImageDraw
         if spec.get("STYLE") == "gameboy":
             _GameBoySplash.play(lcd, spec)
             return
@@ -1735,17 +1867,18 @@ class _GameBoySplash:
         _Splash._wait(0.4)
         lx, ly, lw, lh = (int(v) for v in spec["LOGO_BOX"])
         logo = base.crop((lx, ly, lx + lw, ly + lh))
-        steps = 22
-        previous_top = -lh
-        for i in range(1, steps + 1):
-            top = round(-lh + (ly + lh) * i / steps)  # from fully above the screen to its final place
-            band_top, band_bottom = max(0, previous_top), min(h, top + lh)
+        drop = {"top": -lh}
+
+        def fall(p):
+            top = round(-lh + (ly + lh) * p)  # from fully above the screen to its final place
+            band_top, band_bottom = max(0, drop["top"]), min(h, top + lh)
             if band_bottom > band_top:
                 band = blank.crop((lx, band_top, lx + lw, band_bottom))
                 band.paste(logo, (0, top - band_top))
                 lcd.DisplayPILImage(band, lx, band_top)
-            previous_top = top
-            _Splash._wait(0.04)
+            drop["top"] = top
+
+        _Splash._animate(0.9, fall)
 
         # 2. the "chime": the logo flashes lighter twice
         faded = logo.point(lambda v: v)
@@ -1837,7 +1970,7 @@ class _RetrowaveSplash:
             z = 1.0 - phase / cls.PHASES
             while True:
                 y = fh * 0.9 / z
-                if y < 1.5:
+                if y < fh * 0.12:  # further away the lines are too close to be seen moving: each one would cost a row
                     break
                 if y < fh:
                     d.line((0, round(y), w, round(y)), fill=int(255 * (0.2 + 0.8 * y / fh)), width=2 if y > fh * 0.45 else 1)
@@ -1872,19 +2005,15 @@ class _RetrowaveSplash:
             phase = int((time.monotonic() - t0) * cls.SPEED * cls.PHASES) % cls.PHASES
             if phase == state["phase"]:
                 return
-            new, old = floor(phase), state["floor"]
+            new = floor(phase)
             boxes = [(0, 0, w, h - horizon)]  # floor coordinates; around the panel once it is open
             if state["open"]:
                 top, bottom = py1 - horizon, py2 + 1 - horizon
                 boxes = [(0, 0, w, top), (0, top, px1, h - horizon), (px2 + 1, top, w, h - horizon),
                          (px1, bottom, px2 + 1, h - horizon)]
-            for box in boxes:
-                if box[2] <= box[0] or box[3] <= box[1]:
-                    continue
-                part = new.crop(box)
-                changed = ImageChops.difference(part, old.crop(box)).getbbox() if old else (0, 0) + part.size
-                if changed:
-                    lcd.DisplayPILImage(part.crop(changed), box[0] + changed[0], horizon + box[1] + changed[1])
+            for box in boxes:  # only the moving lines go out: _Screen sends what changed
+                if box[2] > box[0] and box[3] > box[1]:
+                    lcd.DisplayPILImage(new.crop(box), box[0], horizon + box[1])
             state["floor"], state["phase"] = new, phase
 
         # the chrome letters, for the glint: same font, size and anchor as make_theme.py drew them
@@ -1937,42 +2066,43 @@ class _RetrowaveSplash:
         # 2. a laser line scans the logo and subtitle in, top to bottom
         rx1, ry1, rx2, ry2 = (int(v) for v in spec["REVEAL_BOX"])
         before, after = blank.crop((rx1, ry1, rx2, ry2)), full.crop((rx1, ry1, rx2, ry2))
-        steps = 12
-        for i in range(1, steps + 1):
-            line = round((ry2 - ry1) * i / steps)
+
+        def scan(p):
+            line = round((ry2 - ry1) * p)
             strip = before.copy()
             strip.paste(after.crop((0, 0, rx2 - rx1, line)), (0, 0))
-            if i < steps:
+            if p < 1.0:
                 d = ImageDraw.Draw(strip)
                 d.line((0, line, rx2 - rx1, line), fill=(235, 255, 255))
                 d.line((0, line + 1, rx2 - rx1, line + 1), fill=bright)
-            lcd.DisplayPILImage(strip, rx1, ry1)
-            _Splash._run(0.04, grid_tick)
+            lcd.DisplayPILImage(strip, rx1, ry1)  # only the rows the line went over change
+
+        _Splash._animate(0.5, scan, grid_tick)
 
         # 3. a strong glint with a backlight pulse, then the periodic glints start
-        sweep_start = time.monotonic()
-        pulsed = False
-        while True:
-            t = min(1.0, (time.monotonic() - sweep_start) / 0.6)
-            if t > 0.4 and not pulsed:
+        pulsed = {"up": False}
+
+        def sweep(t):
+            if t > 0.4 and not pulsed["up"]:
                 level(1.3)
-                pulsed = True
+                pulsed["up"] = True
             glint(-0.1 + 1.2 * t, strength=240, width=48)
-            _Splash._run(0.02, grid_tick)
-            if t >= 1.0:
-                break
+
+        _Splash._animate(0.6, sweep, grid_tick)
         level(1.0)
         lcd.DisplayPILImage(logo, lx1, ly1)
         state["glint_from"] = time.monotonic() + 1.0
 
         # 4. the SYSTEM CHECK panel opens from its centre
         pw = px2 - px1 + 1
-        for i in range(1, 6):
+
+        def open_panel(p):
             region = state["floor"].crop((px1, py1 - horizon, px2 + 1, py2 + 1 - horizon))
-            half = round(pw * i / 5 / 2)
+            half = max(1, round(pw * p / 2))
             region.paste(panel.crop((px1 + pw // 2 - half, py1, px1 + pw // 2 + half, py2 + 1)), (pw // 2 - half, 0))
             lcd.DisplayPILImage(region, px1, py1)
-            _Splash._run(0.05, tick)
+
+        _Splash._animate(0.35, open_panel, glint_tick)
         state["open"] = True
         lcd.DisplayPILImage(panel.crop((px1, py1, px2 + 1, py2 + 1)), px1, py1)
         state["phase"] = None  # resend the floor around the panel (its glow changed it)
@@ -2042,13 +2172,7 @@ class _RetrowaveSplash:
 
         # 8. last glint and a backlight flash into the dashboard
         state["glint_from"] = None
-        sweep_start = time.monotonic()
-        while True:
-            t = min(1.0, (time.monotonic() - sweep_start) / 0.4)
-            glint(-0.1 + 1.2 * t, strength=240, width=48)
-            _Splash._run(0.02, grid_tick)
-            if t >= 1.0:
-                break
+        _Splash._animate(0.4, lambda t: glint(-0.1 + 1.2 * t, strength=240, width=48), grid_tick)
         level(1.3)
         _Splash._wait(0.12)
         level(1.0)
