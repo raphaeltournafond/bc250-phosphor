@@ -1,6 +1,6 @@
-# BC250 themes: Phosphor, Game Boy, Retrowave and Videotex
+# BC250 themes: Phosphor, Game Boy, Retrowave, Videotex and Mission Control
 
-Four themes for [turing-smart-screen-python](https://github.com/mathoudebine/turing-smart-screen-python), made for a **3.5" Turing screen** (landscape or portrait) on an **AMD BC-250 Steam Machine running Bazzite**. All four show the same live data; pick one with `--theme`.
+Five themes for [turing-smart-screen-python](https://github.com/mathoudebine/turing-smart-screen-python), made for a **3.5" Turing screen** (landscape or portrait) on an **AMD BC-250 Steam Machine running Bazzite**. All five show the same live data; pick one with `--theme`.
 
 **Phosphor** (default): a retro green-phosphor terminal, with a CRT warm-up and a 3D logo at boot.
 
@@ -17,6 +17,10 @@ Four themes for [turing-smart-screen-python](https://github.com/mathoudebine/tur
 **Videotex** (`--theme videotex`): a French 40-column videotex page in 8 flat colours, in French. CPU and GPU are coloured pages with mosaic bar charts of their temperature, under a teletext header (`P250 BC-250 … ven. 16 oct. 21:30:12`), and the bottom line is a ticker ("EN COURS : Hades II"). At boot it dials `3615 BC250`, shows the modem handshake, then draws the service page row by row.
 
 ![videotex landscape](res/themes/BC250-Videotex/preview.png) ![videotex portrait](res/themes/BC250-Videotex/preview_portrait.png)
+
+**Mission Control** (`--theme mission`): a 1969 flight-controller console, white and amber telemetry in CRT windows set in grey. CPU and GPU are STAGE 1 and STAGE 2, temperatures read THERMAL, APU power PWR BUS, and the header shows the mission elapsed time (your uptime, `MET 003:14:22:05`) and the day of the year. The bottom line reads "FLIGHT: Hades II", or "HOLDING" when idle. At boot the flight director runs a GO/NO-GO poll of every station, then the countdown clock goes T-10, IGNITION, LIFTOFF with a flash.
+
+![mission control landscape](res/themes/BC250-Mission/preview.png) ![mission control portrait](res/themes/BC250-Mission/preview_portrait.png)
 
 *Game Boy-inspired fan theme, not affiliated with or endorsed by Nintendo; it uses no Nintendo logos. Retrowave's logo uses the Race Space font that comes with the app (free for non-commercial use).*
 
@@ -44,7 +48,7 @@ That's it: the screen now starts with the boot animation every time the BC-250 b
 | To… | Run |
 |---|---|
 | update the theme | `git -C bc250-themes pull && bash bc250-themes/setup.sh` |
-| switch theme | `bash bc250-themes/setup.sh --theme gameboy` (or `retrowave`, `videotex`, `phosphor`) |
+| switch theme | `bash bc250-themes/setup.sh --theme gameboy` (or `retrowave`, `videotex`, `mission`, `phosphor`) |
 | change an option | `bash bc250-themes/setup.sh --night 23:30-08:00 --logo "MY RIG"` (remembered for next time) |
 | go back to the defaults | `bash bc250-themes/setup.sh --reset-options` |
 | remove it | `bash bc250-themes/setup.sh --uninstall` |
@@ -62,7 +66,7 @@ That's it: the screen now starts with the boot animation every time the BC-250 b
 
 | Option | Default | Effect |
 |---|---|---|
-| `--theme NAME` | `phosphor` | `phosphor` (green terminal), `gameboy` (4-shade RPG status screen) , `retrowave` (neon sunset) or `videotex` (French videotex pages) |
+| `--theme NAME` | `phosphor` | `phosphor` (green terminal), `gameboy` (4-shade RPG status screen), `retrowave` (neon sunset), `videotex` (French videotex pages) or `mission` (1969 mission control) |
 | `--portrait` | landscape | portrait layout (320×480): panels stacked, 2×3 grid |
 | `--logo TEXT` / `--subtitle TEXT` | `BC-250` / `STEAM MACHINE` | boot splash title and the line under it |
 | `--user NAME` / `--host NAME` | your login / hostname | the `user@host:~$` prompt |
@@ -76,16 +80,17 @@ That's it: the screen now starts with the boot animation every time the BC-250 b
 
 ## What's on screen
 
-![phosphor boot](res/themes/BC250-Phosphor/splash_preview.gif) ![game boy boot](res/themes/BC250-GameBoy/splash_preview.gif) ![retrowave boot](res/themes/BC250-Retrowave/splash_preview.gif) ![videotex boot](res/themes/BC250-Videotex/splash_preview.gif)
+![phosphor boot](res/themes/BC250-Phosphor/splash_preview.gif) ![game boy boot](res/themes/BC250-GameBoy/splash_preview.gif) ![retrowave boot](res/themes/BC250-Retrowave/splash_preview.gif) ![videotex boot](res/themes/BC250-Videotex/splash_preview.gif) ![mission control boot](res/themes/BC250-Mission/splash_preview.gif)
 
 - **Boot** (about 8-10 s on a 3.5" rev A, including ~2 s to blank the screen; the previews above are recorded at its real speed, 160 KB/s): a self-test of real values (CPU, memory, GPU, temperatures, Steam library, network, Steam client).
   - **Phosphor:** a CRT warm-up, then the "Phosphor BIOS" with a 3D logo.
   - **Game Boy:** your logo drops in, then a SYSTEM CHECK menu with a ▶ cursor and an HP-style loading bar.
   - **Retrowave:** the backlight fades up on a sunset and a scrolling neon grid, a laser scans in the chrome logo, then a SYSTEM CHECK panel with a pink-to-cyan loading bar and a blinking PRESS START.
   - **Videotex:** `3615 BC250` is typed in, "Connexion..." and the modem handshake as text, the corner goes from F to C, then the page builds row by row and the self-test fills its table (in French).
-- **CPU / GPU panels:** load %, temperature, clock and a 60 s temperature chart. On Phosphor, colours go green → orange (70 °C) → red (80 °C); on Retrowave, cyan → pink → sunset orange; on Videotex, green → yellow → red blocks. The Game Boy has only 4 shades, so it darkens instead. On all of them, `HOT!` flashes from 80 °C.
+  - **Mission Control:** a GO/NO-GO poll with GO / HOLD / NO GO lamps, the flight director's verdict, then T-10 to IGNITION and LIFTOFF.
+- **CPU / GPU panels:** load %, temperature, clock and a 60 s temperature chart. On Phosphor, colours go green → orange (70 °C) → red (80 °C); on Retrowave, cyan → pink → sunset orange; on Videotex, green → yellow → red blocks; on Mission Control, white → amber → red (and `ALARM` instead of `HOT!`). The Game Boy has only 4 shades, so it darkens instead. On all of them, `HOT!` flashes from 80 °C.
 - **System grid:** RAM, games SSD (% used and free space), APU power (same colour scale as the temperatures, 100 → 200 W), GPU memory, download/upload speed and ping.
-- **Bottom line** (in RPG wording on the Game Boy, such as "IS PLAYING", arcade wording on Retrowave, such as "NOW PLAYING", and a French ticker on Videotex, such as "EN COURS :"): what the machine is doing:
+- **Bottom line** (in RPG wording on the Game Boy, such as "IS PLAYING", arcade wording on Retrowave, such as "NOW PLAYING", a French ticker on Videotex, such as "EN COURS :", and flight status on Mission Control, such as "FLIGHT:"): what the machine is doing:
   - **now-playing:** game, FPS and session time;
   - **downloading** / **installing** / **verifying:** a Steam download with its progress bar and ETA;
   - **fossilize_replay:** shader pre-caching, with `STALL` if it gets stuck;

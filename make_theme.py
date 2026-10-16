@@ -1,6 +1,6 @@
 # BC-250 theme generator for turing-smart-screen-python: renders the artwork and writes theme.yaml of one theme
 # from a single layout, so static art and live widgets always line up.
-#     python3 make_theme.py --app ~/turing-smart-screen-python [--theme phosphor|gameboy|retrowave|videotex] [--portrait] [...]
+#     python3 make_theme.py --app ~/turing-smart-screen-python [--theme phosphor|gameboy|retrowave|videotex|mission] [--portrait] [...]
 #     python3 make_theme.py --help
 # The theme is written to <app>/res/themes/BC250-<Theme> (fonts are read from <app>/res/fonts).
 #
@@ -66,6 +66,11 @@ SKINS = {
     "videotex": dict(folder="BC250-Videotex", bg=VT["k"], dim=VT["b"], mid=VT["c"], value=VT["w"], accent=VT["y"],
                      cold=VT["g"], hot=VT["y"], alert=VT["r"], ink=VT["k"], grid_dot=VT["b"], bar=VT["g"],
                      palette=list(VT.values())),
+    # Mission Control 1969: white telemetry and amber labels in black CRT windows set in a grey console
+    "mission": dict(folder="BC250-Mission", bg=(6, 8, 8), console=(58, 60, 62), dim=(92, 94, 96),
+                    mid=(255, 176, 40), value=(232, 232, 220), accent=(255, 176, 40), cold=(232, 232, 220),
+                    hot=(255, 176, 40), alert=(240, 60, 50), ink=(10, 10, 10), grid_dot=(34, 38, 38),
+                    bar=(255, 176, 40), green=(70, 220, 100), palette=None),
 }
 SKIN_NAME = "phosphor"
 SKIN = SKINS[SKIN_NAME]
@@ -164,7 +169,7 @@ def set_layout(portrait: bool, skin: str = "phosphor"):
     global PROMPT_Y, PROMPT_LABEL_BL, PROMPT_VALUE_BL, PROMPT_COLS_BL, PROMPT_X, PROMPT_XR, PROMPT_AREA
     global PROMPT_COL1_XR, PROMPT_COLS, SPLASH_LAYOUT
     PORTRAIT, SKIN_NAME, SKIN = portrait, skin, SKINS[skin]
-    gameboy, retro, videotex = skin == "gameboy", skin == "retrowave", skin == "videotex"
+    gameboy, retro, videotex, mission = (skin == name for name in ("gameboy", "retrowave", "videotex", "mission"))
     card = gameboy_card if gameboy else (lambda *box: phosphor_panel(*box, col_a_offset=130 if portrait else 100))
     if not portrait:  # 480x320: CPU and GPU side by side, 3x2 grid, one-line prompt
         W, H = 480, 320
@@ -202,6 +207,11 @@ def set_layout(portrait: bool, skin: str = "phosphor"):
                 row_bl=145, row_step=14, label_x=12, value_x=84, status_xr=468, progress_bl=252,
                 bar=(96, 244, 468 - 96, 8), status_bl=276, footer=(0, 296, 480, 316), dial_x=48,
                 dial_bl=(160, 196, 216, 236, 256))
+        if mission:  # nameplate and countdown clock on top, the poll in the big CRT
+            SPLASH_LAYOUT = dict(
+                plate=(8, 6, 288, 56), count_box=(296, 6, 473, 56), count_bl=49, crt=(8, 62, 472, 312),
+                head_bl=82, row_bl=108, row_step=22, label_x=20, value_x=104, status_xr=460,
+                status_bl=270, liftoff_bl=294, progress_bl=0, bar=(0, 0, 0, 0))  # no loading bar: the countdown
     else:  # 320x480: panels stacked, 2x3 grid, prompt with its values on a row of their own
         W, H = 320, 480
         DATE_XR = None  # no room for the date in the header
@@ -238,6 +248,11 @@ def set_layout(portrait: bool, skin: str = "phosphor"):
                 row_bl=186, row_step=18, label_x=12, value_x=84, status_xr=308, progress_bl=334,
                 bar=(96, 326, 308 - 96, 8), status_bl=364, footer=(0, 452, 320, 476), dial_x=24,
                 dial_bl=(200, 240, 262, 284, 306))
+        if mission:
+            SPLASH_LAYOUT = dict(
+                plate=(8, 6, 312, 58), count_box=(8, 64, 312, 112), count_bl=104, crt=(8, 120, 312, 472),
+                head_bl=140, row_bl=168, row_step=26, label_x=18, value_x=84, status_xr=302,
+                status_bl=372, liftoff_bl=400, progress_bl=0, bar=(0, 0, 0, 0))  # no loading bar: the countdown
     CLOCK_XR = W - 6
     GRID_COLS = [GRID[0] + 10 + i * (CELL_W + CELL_GAP) for i in range(grid_cols)]
     grid_rows_y = [GRID[1] + 8 + i * 48 for i in range(grid_rows)]
@@ -248,11 +263,16 @@ def set_layout(portrait: bool, skin: str = "phosphor"):
     PROMPT_AREA = (6, PROMPT_Y + 3, W - 12, H - PROMPT_Y - 6) if gameboy else (6, PROMPT_Y + 2, W - 12, H - PROMPT_Y - 2)
     if videotex:
         PROMPT_AREA = (0, PROMPT_Y, W, H - PROMPT_Y)
+    if mission:
+        for p in (cpu, gpu):  # ALARM (5 letters) over the nameplate instead of HOT!
+            p["tag"] = (p["box"][0] + 8, p["box"][1] - 6, 5 * CH[S] + 12, 13)
     # portrait: values on their own row, in two half-width columns (small label left, value right)
     half = (PROMPT_XR - PROMPT_X - CELL_GAP) // 2
     PROMPT_COLS = [[PROMPT_X, PROMPT_X + half], [PROMPT_XR - half, PROMPT_XR]] if portrait else None
     SPLASH_LAYOUT.setdefault("logo_max_w", 256)  # leaves room in the logo box for the 3D sway and perspective
     SPLASH_LAYOUT["value_chars"] = (SPLASH_LAYOUT["status_xr"] - 6 * CH[S] - 8 - SPLASH_LAYOUT["value_x"]) // CH[S]
+    if mission:  # the status is a lamp, wider than a word
+        SPLASH_LAYOUT["value_chars"] -= 3
 
 
 set_layout(portrait=False)
@@ -331,6 +351,8 @@ def heat_widget(p):
     })
     if SKIN_NAME == "videotex":  # history as a bar chart of separated mosaic blocks
         widget["HEAT_GRAPH"]["STYLE"] = "mosaic"
+    if SKIN_NAME == "mission":
+        widget["ALERT_TAG"]["TEXT"] = "ALARM"
     return widget
 
 
@@ -343,7 +365,7 @@ def to_yaml(data, indent=0):
             out.append(to_yaml(v, indent + 1))
         elif isinstance(v, bool):
             out.append(f"{pad}{k}: {v}")
-        elif isinstance(v, str) and (any(c in v for c in ':#"@') or v != v.strip() or v == ""
+        elif isinstance(v, str) and (any(c in v for c in ":#\"@'") or v != v.strip() or v == ""
                                      or v.lower() in ("on", "off", "yes", "no", "true", "false", "null")):
             out.append(f'{pad}{k}: "{v}"' if '"' not in v else f"{pad}{k}: '{v}'")
         else:
@@ -378,6 +400,12 @@ VIDEOTEX_WORDS = {"boot": "CONNEXION", "now-playing": "EN COURS :", "downloading
                   "last-session": "DERNIÈRE PARTIE :", "idle": "EN VEILLE"}
 
 
+# mission wording ("FLIGHT: Hades II"; idle: "HOLDING" / "AWAITING GO")
+MISSION_WORDS = {"boot": "COUNTDOWN", "now-playing": "FLIGHT:", "downloading": "UPLINK:", "installing": "INSTALL:",
+                 "verifying": "CHECKOUT:", "fossilize_replay": "PRE-FLIGHT:", "last-session": "SPLASHDOWN:",
+                 "idle": "HOLDING", "idle-text": "AWAITING GO"}
+
+
 def videotex_code(logo):
     """The service code of the boot screen: 3615 + the logo's letters and digits."""
     return "3615 " + ("".join(ch for ch in logo.upper() if ch.isalnum())[:12] or "BC250")
@@ -385,7 +413,7 @@ def videotex_code(logo):
 
 def prompt_prefix(user, prompt):
     """What precedes the live command word in the prompt's label row."""
-    return {"gameboy": user.upper(), "retrowave": f"1UP {user.upper()}", "videotex": ""}.get(SKIN_NAME, prompt)
+    return {"gameboy": user.upper(), "retrowave": f"1UP {user.upper()}", "videotex": "", "mission": ""}.get(SKIN_NAME, prompt)
 
 
 def build_theme(title, prompt, user):
@@ -393,11 +421,12 @@ def build_theme(title, prompt, user):
     net_spark = dict(max_value=10_000_000_000, autoscale=True)
     ram, ssd, pwr, rx, tx, ping = (cells[k] for k in ("ram", "ssd", "pwr", "rx", "tx", "ping"))
     sl = SPLASH_LAYOUT
-    header_ink = SKIN["value"] if SKIN_NAME in ("gameboy", "videotex") else SKIN["ink"]
-    clock_ink = SKIN["accent"] if SKIN_NAME == "videotex" else header_ink  # teletext: the time in yellow
+    header_ink = SKIN["value"] if SKIN_NAME in ("gameboy", "videotex", "mission") else SKIN["ink"]
+    clock_ink = SKIN["accent"] if SKIN_NAME in ("videotex", "mission") else header_ink  # the time in yellow / amber
     date = {"INTERVAL": 1}
     if DATE_XR:
-        date["DAY"] = {"TEXT": text(DATE_XR, HEADER_BL, S, 14, header_ink, right=True, FORMAT="EEE dd MMM")}
+        day_format = "'DAY' DDD" if SKIN_NAME == "mission" else "EEE dd MMM"  # mission clocks: day of the year
+        date["DAY"] = {"TEXT": text(DATE_XR, HEADER_BL, S, 14, header_ink, right=True, FORMAT=day_format)}
     date["HOUR"] = {"TEXT": text(CLOCK_XR, HEADER_BL, S, CLOCK_CHARS, clock_ink, right=True, FORMAT="HH:mm:ss")}
     prompt_spec = {
         "AREA": {"X": PROMPT_AREA[0], "Y": PROMPT_AREA[1], "WIDTH": PROMPT_AREA[2],
@@ -412,6 +441,9 @@ def build_theme(title, prompt, user):
         prompt_spec.update({"CMD_WORDS": GAMEBOY_WORDS, "CURSOR": "▼", "LABEL_COLOR": rgb(SKIN["mid"])})
     if SKIN_NAME == "retrowave":
         prompt_spec.update({"CMD_WORDS": RETRO_WORDS, "LABEL_COLOR": rgb(SKIN["accent"])})
+    if SKIN_NAME == "mission":
+        prompt_spec.update({"CMD_WORDS": MISSION_WORDS, "LABEL_COLOR": rgb(SKIN["accent"]),
+                            "COL_WORDS": {"SESSION": "FLT TIME", "TIME": "FLT TIME", "PEAK C/G": "PEAK THRM"}})
     if SKIN_NAME == "videotex":
         prompt_spec.update({"CMD_WORDS": dict(VIDEOTEX_WORDS, **{"idle-text": videotex_code(LOGO)}),
                             "LABEL_COLOR": rgb(SKIN["accent"]), "PROGRESS_STYLE": "mosaic",
@@ -436,7 +468,7 @@ def build_theme(title, prompt, user):
         "BAR_Y": sl["bar"][1], "BAR_W": sl["bar"][2], "BAR_H": sl["bar"][3],
         "IMAGE_NOLOGO": "splash_nologo.png", "LOGO_TEXT": LOGO,
     }
-    if SKIN_NAME not in ("retrowave", "videotex"):  # the pixel-font logo
+    if SKIN_NAME not in ("retrowave", "videotex", "mission"):  # the pixel-font logo
         splash.update({"LOGO_SIZE": logo_size(LOGO), "LOGO_BL": logo_baseline(logo_size(LOGO)),
                        "LOGO_BOX": list(sl["logo_box"])})
     if SKIN_NAME == "phosphor":  # the dark tube the warm-up starts from: only the text has to be sent after it
@@ -450,6 +482,10 @@ def build_theme(title, prompt, user):
                        "LOGO_BOX": list(logo["face_box"]), "REVEAL_BOX": list(RETRO_REVEAL_BOX),
                        "HORIZON": sl["horizon"], "PANEL": list(sl["panel"]), "GRID_COLOR": rgb(SKIN["mid"]),
                        "GRID_SPACING": W // 8, "FOOTER_BL": sl.get("footer_bl", 0)})
+    if SKIN_NAME == "mission":
+        splash.update({"STYLE": "mission", "IMAGE_BLANK": "splash.png", "GREEN": rgb(SKIN["green"]),
+                       "COUNT_BOX": list(sl["count_box"]), "COUNT_BL": sl["count_bl"], "HEAD_BL": sl["head_bl"],
+                       "LIFTOFF_BL": sl["liftoff_bl"]})
     if SKIN_NAME == "videotex":
         splash.update({"STYLE": "videotex", "IMAGE_BLANK": "splash_blank.png", "CODE": videotex_code(LOGO),
                        "GREEN": rgb(VT["g"]), "BLUE": rgb(VT["b"]), "STATUS_CELL": [W - 18, 2, 12, 13],
@@ -516,7 +552,9 @@ def build_theme(title, prompt, user):
     if SKIN["palette"]:
         # the sensors module snaps every colour it computes (heat fades, dimmed fills) to these shades
         theme["bc250_palette"] = {"COLORS": [rgb(c) for c in SKIN["palette"]], "BG": rgb(SKIN["bg"])}
-    if uptime_chars:
+    if uptime_chars and SKIN_NAME == "mission":  # mission elapsed time instead of the app's uptime
+        theme["STATS"]["CUSTOM"]["Bc250Met"] = {"TEXT": text(uptime_x, HEADER_BL, S, 12, SKIN["accent"])}
+    elif uptime_chars:
         theme["STATS"]["UPTIME"] = {"INTERVAL": 1,
                                     "FORMATTED": {"TEXT": text(uptime_x, HEADER_BL, S, uptime_chars, header_ink)}}
     # keep the original key order (STATS: CPU, MEMORY, NET, PING, DATE, UPTIME, CUSTOM)
@@ -547,6 +585,7 @@ class Canvas:
         self.img = Image.new("RGB", (W, H), SKIN["bg"])
         self.glow = Image.new("RGB", (W, H), (0, 0, 0))  # what gets the phosphor bloom
         self.d, self.g = ImageDraw.Draw(self.img), ImageDraw.Draw(self.glow)
+        self.crt = []  # mission control: the boxes that get scanlines (the console itself doesn't)
 
     def label(self, x, baseline, s, color=None, anchor="ls", size=S, glow=True):
         color = color or SKIN["mid"]
@@ -626,6 +665,15 @@ class Canvas:
             return self.lcd_grid(self.img)
         if SKIN_NAME == "videotex":  # flat colours, nothing else
             return self.img
+        if SKIN_NAME == "mission":  # soft glow of the text, scanlines on the CRT glass only
+            img = ImageChops.add(self.img, self.glow.filter(ImageFilter.GaussianBlur(3)).point(lambda v: int(v * 0.45)))
+            shade = Image.new("L", (W, H), 255)
+            sd = ImageDraw.Draw(shade)
+            for x1, y1, x2, y2 in self.crt:
+                for y in range(y1 + 1, y2):
+                    if y % 2:
+                        sd.line((x1 + 1, y, x2 - 1, y), fill=212)
+            return ImageChops.multiply(img, shade.convert("RGB"))
         retro = SKIN_NAME == "retrowave"  # neon: stronger bloom, lighter scanlines and vignette
         bloom = self.glow.filter(ImageFilter.GaussianBlur(3))
         img = ImageChops.add(self.img, bloom.point(lambda v: int(v * (0.7 if retro else 0.55))))
@@ -1104,6 +1152,106 @@ def render_splash_videotex(title, layer="full"):
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+# Mission Control artwork
+# ---------------------------------------------------------------------------------------------------------------------
+MC_STAGES = (("STAGE 1", "ZEN2 6C/12T", "FREQ GHZ"), ("STAGE 2", "RDNA2 24CU", "FREQ MHZ"))
+MC_LABELS = {"ram": ("MEM", "USED"), "ssd": ("STORAGE", "FREE"), "pwr": ("PWR BUS", "GPU MEM"),
+             "rx": ("↓ COMM RX", None), "tx": ("↑ COMM TX", None), "ping": ("PING", None)}
+MC_PLATE = (196, 196, 184)  # engraved nameplates
+MC_ENGRAVED = (24, 24, 24)
+
+
+def crt_window(c, box):
+    """A black CRT window sunk into the console: dark bevel top/left, light bevel bottom/right."""
+    x1, y1, x2, y2 = box
+    c.d.rectangle((x1 - 2, y1 - 2, x2 + 2, y2 + 2), fill=(36, 38, 40))
+    c.d.line((x1 - 2, y2 + 2, x2 + 2, y2 + 2), fill=(104, 106, 108))
+    c.d.line((x2 + 2, y1 - 2, x2 + 2, y2 + 2), fill=(104, 106, 108))
+    c.d.rounded_rectangle(box, radius=4, fill=SKIN["bg"])
+    c.crt.append(box)
+
+
+def nameplate(c, x, y, title, subtitle=None):
+    """An engraved plate on the console, its top-left at (x, y), 12 px high; the subtitle engraved beside it."""
+    w = len(title) * CH[S] + 12
+    c.d.rectangle((x, y, x + w - 1, y + 11), fill=MC_PLATE)
+    c.d.line((x, y + 11, x + w - 1, y + 11), fill=(120, 120, 112))
+    c.label(x + 6, y + 10, title, MC_ENGRAVED, glow=False)
+    if subtitle:
+        c.label(x + w + 6, y + 10, subtitle, (170, 170, 160), glow=False)
+    return w
+
+
+def window_behind(c, x1, x2, baseline):
+    """A small black readout window behind one line of header text."""
+    c.d.rectangle((x1 - 3, baseline - 11, x2 + 2, baseline + 3), fill=SKIN["bg"])
+
+
+def render_background_mission(title):
+    c = Canvas()
+    c.d.rectangle((0, 0, W, H), fill=SKIN["console"])
+    up_x, uptime_x, uptime_chars = header_layout(title)
+
+    # header: console title, then readouts: MET, day of the year, time
+    c.label(6, HEADER_BL, title, MC_PLATE, glow=False)
+    if uptime_chars:
+        c.label(uptime_x - 5, HEADER_BL, "MET", (170, 170, 160), anchor="rs", glow=False)
+        window_behind(c, uptime_x, uptime_x + 12 * CH[S], HEADER_BL)
+    if DATE_XR:
+        window_behind(c, DATE_XR - 7 * CH[S], DATE_XR, HEADER_BL)
+    window_behind(c, CLOCK_XR - CLOCK_CHARS * CH[S], CLOCK_XR, HEADER_BL)
+
+    for p, (name, subtitle, clk) in zip((cpu, gpu), MC_STAGES):
+        x1, y1, x2, y2 = p["box"]
+        crt_window(c, (x1, y1 + 6, x2, y2))
+        nameplate(c, x1 + 8, y1 - 6, name, subtitle)
+        c.label(p["col_a"], p["label_bl"], "THERMAL")
+        c.label(p["xr"], p["label_bl"], clk, anchor="rs")
+        c.bar_track(*p["bar"])
+        c.graph_grid(*p["graph"])
+        if p["graph"][3] >= 50:
+            c.label(p["xr"] - 2, p["graph"][1] + 10, "THERMAL 60s", SKIN["dim"], anchor="rs", glow=False)
+
+    gx1, gy1, gx2, gy2 = GRID
+    crt_window(c, (gx1, gy1 + 6, gx2, gy2))
+    nameplate(c, gx1 + 8, gy1 - 6, "SYSTEMS", "MEM / STORAGE / COMM")
+    for key, (label, sublabel) in MC_LABELS.items():
+        cl = cells[key]
+        c.label(cl["x0"], cl["label_bl"], label)
+        if sublabel:
+            c.label(cl["xr"], cl["label_bl"], sublabel, SKIN["dim"], anchor="rs", glow=False)
+        if key in ("ram", "ssd", "pwr"):
+            c.bar_track(*cl["bar"], ticks=False)
+        else:
+            c.graph_grid(*cl["spark"])
+    for col in range(1, len(GRID_COLS)):
+        c.dotted_vline(GRID_COLS[col] - (CELL_GAP + 1) // 2, GRID[1] + 10, GRID[3] - 4)
+
+    crt_window(c, (4, PROMPT_Y + 1, W - 5, H - 3))  # the flight status line, written live by Bc250Prompt
+    return c.finish()
+
+
+def render_splash_mission():
+    """The console the boot runs on: nameplate with the logo, the countdown clock, the poll CRT. Everything in the
+    windows (poll, lamps, countdown) is drawn live by sensors_bc250."""
+    sl = SPLASH_LAYOUT
+    c = Canvas()
+    c.d.rectangle((0, 0, W, H), fill=SKIN["console"])
+    px1, py1, px2, py2 = sl["plate"]
+    c.label(px1 + 4, py1 + 11, "MISSION CONTROL CENTER", SKIN["accent"], glow=False)
+    size = L if len(LOGO) * CH[L] <= px2 - px1 - 8 else M
+    c.label(px1 + 4, py2 - 6, LOGO, SKIN["value"], size=size)
+    sub_x = px1 + 4 + len(LOGO) * CH[size] + 10
+    if sub_x + len(SUBTITLE) * CH[S] <= px2:
+        c.label(sub_x, py2 - 6, SUBTITLE, (170, 170, 160), glow=False)
+    crt_window(c, sl["count_box"])
+    bx1, by1, bx2, by2 = sl["count_box"]
+    c.label(bx1 + 6, by1 + 13, "COUNTDOWN", SKIN["dim"], glow=False)
+    crt_window(c, sl["crt"])
+    return c.finish()
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate a BC-250 theme for turing-smart-screen-python")
     parser.add_argument("--app", required=True, help="turing-smart-screen-python folder (fonts are read, theme written)")
@@ -1162,7 +1310,8 @@ if __name__ == "__main__":
     POWER_LOW, POWER_HIGH = args.pwr_low, args.pwr_high
     DIM_AFTER, DIM_BRIGHTNESS, NIGHT, NIGHT_MODE = args.dim_after, args.dim_brightness, args.night, args.night_mode
 
-    title = (args.title or (f"P250 {LOGO}" if SKIN_NAME == "videotex" else f"{LOGO}::{args.user.upper()}"))[:28]
+    title = (args.title or {"videotex": f"P250 {LOGO}", "mission": f"MCC {LOGO}"}.get(SKIN_NAME)
+             or f"{LOGO}::{args.user.upper()}")[:28]
     prompt = f"{args.user}@{args.host}:~$"[:40]
 
     if SKIN_NAME == "gameboy":
@@ -1170,6 +1319,9 @@ if __name__ == "__main__":
         render_splash_gameboy(title, prompt).save(THEME_DIR / "splash.png")
         render_splash_gameboy(title, prompt, logo=False).save(THEME_DIR / "splash_nologo.png")
         render_splash_gameboy(title, prompt, logo=False, menu=False).save(THEME_DIR / "splash_blank.png")
+    elif SKIN_NAME == "mission":
+        render_background_mission(title).save(THEME_DIR / "background.png")
+        render_splash_mission().save(THEME_DIR / "splash.png")
     elif SKIN_NAME == "videotex":
         render_background_videotex(title).save(THEME_DIR / "background.png")
         render_splash_videotex(title, "full").save(THEME_DIR / "splash.png")
@@ -1189,7 +1341,8 @@ if __name__ == "__main__":
     names = {"phosphor": "BC250-Phosphor - retro P1 phosphor terminal",
              "gameboy": "BC250-GameBoy - 4-shade handheld RPG status screen",
              "retrowave": "BC250-Retrowave - neon synthwave sunset",
-             "videotex": "BC250-Videotex - 40-column, 8-colour videotex pages"}
+             "videotex": "BC250-Videotex - 40-column, 8-colour videotex pages",
+             "mission": "BC250-Mission - 1969 mission control console"}
     header = (f"# {names[SKIN_NAME]} for an AMD BC-250 Steam Machine\n"
               f"# Turing 3.5\" {'portrait' if PORTRAIT else 'landscape'}. GENERATED by make_theme.py: "
               "edit the script or its options and re-run it.\n"
