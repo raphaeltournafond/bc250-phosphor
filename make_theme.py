@@ -1,6 +1,6 @@
 # BC-250 theme generator for turing-smart-screen-python: renders the artwork and writes theme.yaml of one theme
 # from a single layout, so static art and live widgets always line up.
-#     python3 make_theme.py --app ~/turing-smart-screen-python [--theme phosphor|gameboy|retrowave|videotex|mission|minecraft] [--portrait] [...]
+#     python3 make_theme.py --app ~/turing-smart-screen-python [--theme phosphor|gameboy|retrowave|videotex|mission|minecraft|nixie] [--portrait] [...]
 #     python3 make_theme.py --help
 # The theme is written to <app>/res/themes/BC250-<Theme> (fonts are read from <app>/res/fonts).
 #
@@ -77,6 +77,10 @@ SKINS = {
                       value=(63, 63, 63), accent=(255, 170, 0), cold=(0, 150, 0), hot=(230, 140, 0),
                       alert=(200, 30, 30), ink=(255, 255, 255), grid_dot=(150, 150, 150), bar=(110, 220, 30),
                       palette=None),
+    # Nixie: neon-orange tubes and amber readouts on a black instrument front with brass engraving
+    "nixie": dict(folder="BC250-Nixie", bg=(10, 9, 8), dim=(120, 95, 58), mid=(190, 150, 85), value=(255, 150, 60),
+                  accent=(255, 110, 40), cold=(255, 150, 60), hot=(255, 100, 30), alert=(255, 50, 40), ink=(10, 9, 8),
+                  grid_dot=(40, 32, 26), palette=None),
 }
 SKIN_NAME = "phosphor"
 SKIN = SKINS[SKIN_NAME]
@@ -175,8 +179,9 @@ def set_layout(portrait: bool, skin: str = "phosphor"):
     global PROMPT_Y, PROMPT_LABEL_BL, PROMPT_VALUE_BL, PROMPT_COLS_BL, PROMPT_X, PROMPT_XR, PROMPT_AREA
     global PROMPT_COL1_XR, PROMPT_COLS, SPLASH_LAYOUT
     PORTRAIT, SKIN_NAME, SKIN = portrait, skin, SKINS[skin]
-    gameboy, retro, videotex, mission, blocky = (skin == name for name in
-                                                ("gameboy", "retrowave", "videotex", "mission", "minecraft"))
+    gameboy, retro, videotex, mission, blocky, nixie = (skin == name for name in
+                                                        ("gameboy", "retrowave", "videotex", "mission", "minecraft",
+                                                         "nixie"))
     card = gameboy_card if gameboy else (lambda *box: phosphor_panel(*box, col_a_offset=130 if portrait else 100))
     if not portrait:  # 480x320: CPU and GPU side by side, 3x2 grid, one-line prompt
         W, H = 480, 320
@@ -270,6 +275,20 @@ def set_layout(portrait: bool, skin: str = "phosphor"):
                 logo_center=(160, 52), logo_max_w=290, splash_at=(240, 92), panel=(10, 116, 310, 322),
                 title_bl=133, row_bl=158, row_step=24, label_x=22, value_x=82, status_xr=298,
                 progress_bl=356, bar=(60, 366, 200, 6), status_bl=356, footer_bl=470)
+    if nixie:  # the tubes are laid out by nixie_layout(); this is the boot screen
+        SPLASH_LAYOUT = nixie_splash_layout(portrait)
+        tw, th = SPLASH_LAYOUT["tube"]
+        xs, x = [], W // 2 - (6 * tw + 3 * 4 + 2 * 18) // 2
+        for i in range(6):
+            xs.append(x)
+            x += tw + (4 if i % 2 == 0 else 18)
+        ty = SPLASH_LAYOUT["tube_y"]
+        lx1, lx2 = SPLASH_LAYOUT["lamps_x"]
+        SPLASH_LAYOUT.update(
+            tube_xs=xs, colons=[[xs[i] + tw + 9, ty + round(th * f)] for i in (1, 3) for f in (0.36, 0.64)],
+            lamps=[[lx1 + i * (lx2 - lx1) // 6, SPLASH_LAYOUT["lamps_y"]] for i in range(7)],
+            row_bl=SPLASH_LAYOUT["text_bl"], row_step=0, label_x=16, value_x=16, status_xr=W - 16, progress_bl=0,
+            bar=(0, 0, 0, 0))
     CLOCK_XR = W - 6
     GRID_COLS = [GRID[0] + 10 + i * (CELL_W + CELL_GAP) for i in range(grid_cols)]
     grid_rows_y = [GRID[1] + 8 + i * 48 for i in range(grid_rows)]
@@ -437,6 +456,12 @@ MINECRAFT_SPLASHES = ["Ex-mining rig!", "Now with RDNA2!", "6 cores, 12 threads!
                       "Also try Phosphor!", "Mined, then crafted!", "Zen 2 inside!"]
 
 
+# Nixie status line wording
+NIXIE_WORDS = {"boot": "WARMING UP", "now-playing": "NOW PLAYING", "downloading": "DOWNLOADING",
+               "installing": "INSTALLING", "verifying": "VERIFYING", "fossilize_replay": "COMPILING SHADERS",
+               "last-session": "LAST GAME", "idle": "STANDBY", "idle-text": "170 V standing by"}
+
+
 def videotex_code(logo):
     """The service code of the boot screen: 3615 + the logo's letters and digits."""
     return "3615 " + ("".join(ch for ch in logo.upper() if ch.isalnum())[:12] or "BC250")
@@ -445,7 +470,7 @@ def videotex_code(logo):
 def prompt_prefix(user, prompt):
     """What precedes the live command word in the prompt's label row."""
     return {"gameboy": user.upper(), "retrowave": f"1UP {user.upper()}", "videotex": "", "mission": "",
-            "minecraft": ""}.get(SKIN_NAME, prompt)
+            "minecraft": "", "nixie": ""}.get(SKIN_NAME, prompt)
 
 
 def build_theme(title, prompt, user):
@@ -473,6 +498,8 @@ def build_theme(title, prompt, user):
         prompt_spec.update({"CMD_WORDS": GAMEBOY_WORDS, "CURSOR": "▼", "LABEL_COLOR": rgb(SKIN["mid"])})
     if SKIN_NAME == "retrowave":
         prompt_spec.update({"CMD_WORDS": RETRO_WORDS, "LABEL_COLOR": rgb(SKIN["accent"])})
+    if SKIN_NAME == "nixie":
+        prompt_spec.update({"CMD_WORDS": NIXIE_WORDS, "LABEL_COLOR": rgb(NX_BRASS)})
     if SKIN_NAME == "minecraft":  # white and yellow on the dark chat box
         prompt_spec.update({"CMD_WORDS": dict(MINECRAFT_WORDS, **{"idle-text": f"{user} is AFK"}),
                             "BRIGHT": rgb((255, 255, 255)), "LABEL_COLOR": rgb((255, 255, 85)),
@@ -504,7 +531,7 @@ def build_theme(title, prompt, user):
         "BAR_Y": sl["bar"][1], "BAR_W": sl["bar"][2], "BAR_H": sl["bar"][3],
         "IMAGE_NOLOGO": "splash_nologo.png", "LOGO_TEXT": LOGO,
     }
-    if SKIN_NAME not in ("retrowave", "videotex", "mission", "minecraft"):  # the pixel-font logo
+    if SKIN_NAME not in ("retrowave", "videotex", "mission", "minecraft", "nixie"):  # the pixel-font logo
         splash.update({"LOGO_SIZE": logo_size(LOGO), "LOGO_BL": logo_baseline(logo_size(LOGO)),
                        "LOGO_BOX": list(sl["logo_box"])})
     if SKIN_NAME == "phosphor":  # the dark tube the warm-up starts from: only the text has to be sent after it
@@ -518,6 +545,11 @@ def build_theme(title, prompt, user):
                        "LOGO_BOX": list(logo["face_box"]), "REVEAL_BOX": list(RETRO_REVEAL_BOX),
                        "HORIZON": sl["horizon"], "PANEL": list(sl["panel"]), "GRID_COLOR": rgb(SKIN["mid"]),
                        "GRID_SPACING": W // 8, "FOOTER_BL": sl.get("footer_bl", 0)})
+    if SKIN_NAME == "nixie":
+        splash.update({"STYLE": "nixie", "NIXIE_FONT": NIXIE_FONT, "TUBE_XS": sl["tube_xs"], "TUBE_Y": sl["tube_y"],
+                       "TUBE_W": sl["tube"][0], "TUBE_H": sl["tube"][1], "COLONS": sl["colons"], "LAMPS": sl["lamps"],
+                       "LAMP_NAMES": list(NX_LAMP_LABELS), "TEXT_BL": sl["text_bl"], "GLOW": rgb((255, 90, 18)),
+                       "CORE": rgb((255, 196, 120)), "LAMP_ON": rgb((255, 60, 30))})
     if SKIN_NAME == "minecraft":
         splash.update({"STYLE": "minecraft", "SPLASH_TEXTS": MINECRAFT_SPLASHES, "SPLASH_AT": list(sl["splash_at"]),
                        "GREEN": rgb((0, 150, 0)), "TEXT": rgb(SKIN["value"]), "WHITE": rgb((255, 255, 255)),
@@ -602,6 +634,8 @@ def build_theme(title, prompt, user):
     theme["STATS"] = {k: stats[k] for k in ("CPU", "MEMORY", "NET", "PING", "DATE", "UPTIME", "CUSTOM") if k in stats}
     if "bc250_palette" in theme:
         theme = {k: theme[k] for k in ("author", "bc250_palette", "bc250_splash", "display", "static_images", "STATS")}
+    if SKIN_NAME == "nixie":
+        theme = nixie_theme(theme, title)
     return theme
 
 
@@ -703,7 +737,7 @@ class Canvas:
     def finish(self):
         if SKIN_NAME == "gameboy":
             return self.lcd_grid(self.img)
-        if SKIN_NAME in ("videotex", "minecraft"):  # flat colours, nothing else
+        if SKIN_NAME in ("videotex", "minecraft", "nixie"):  # flat colours, nothing else
             return self.img
         if SKIN_NAME == "mission":  # soft glow of the text, scanlines on the CRT glass only
             img = ImageChops.add(self.img, self.glow.filter(ImageFilter.GaussianBlur(3)).point(lambda v: int(v * 0.45)))
@@ -1450,6 +1484,235 @@ def render_splash_minecraft():
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+# Nixie artwork and layout
+# ---------------------------------------------------------------------------------------------------------------------
+NIXIE_FONT = "roboto/Roboto-Light.ttf"  # thin, even strokes: the shape of a Nixie cathode
+NX_BRASS, NX_BRASS_DIM, NX_GLASS = (190, 150, 85), (120, 95, 58), (22, 16, 13)
+NX_GHOST = (95, 72, 56)  # the unlit cathodes seen through the glass
+NIXIE = {}  # set by nixie_layout()
+
+
+def nixie_layout(portrait):
+    """Every position of the Nixie theme: tube displays (with their bar tubes and warning lamps), the clock's colon
+    dots, engraved labels and the plain readouts the app draws itself."""
+    labels, readouts, displays, boxes = [], {}, [], []
+
+    def tubes(x, n, w, gap):
+        return [x + i * (w + gap) for i in range(n)]
+
+    def clock(cx, y, w, h):
+        pair_gap, colon_gap = 3, 14
+        total = 6 * w + 3 * pair_gap + 2 * colon_gap
+        xs, x = [], cx - total // 2
+        for i in range(6):
+            xs.append(x)
+            x += w + (pair_gap if i % 2 == 0 else colon_gap)
+        colons = [[xs[i] + w + colon_gap // 2, y + round(h * f)] for i in (1, 3) for f in (0.36, 0.64)]
+        displays.append(dict(SOURCE="clock", XS=xs, Y=y, W=w, H=h, FORMAT="{}"))
+        return colons
+
+    def stage(box, name, subtitle, src, clk_tubes, clk_fmt, clk_label, w, h, temp_dx):
+        x1, y1, x2, y2 = box
+        boxes.append(box)
+        x0, xr = x1 + 10, x2 - 10
+        labels.extend([(x0, y1 + 14, name, "ls", NX_BRASS), (x0 + 6 * CH[S], y1 + 14, subtitle, "ls", NX_BRASS_DIM)])
+        ty, pitch = y1 + 20, w + 2
+        under = ty + h + 11
+        labels.extend([(x0, under, "LOAD %", "ls", NX_BRASS_DIM), (x0 + temp_dx, under, "TEMP °C", "ls", NX_BRASS_DIM),
+                       (xr, under, clk_label, "rs", NX_BRASS_DIM)])
+        bar_x, bar_w = x0 + 34, xr - (x0 + 34)
+        load_bar, temp_bar = under + 9, under + 21
+        labels.extend([(x0, load_bar + 6, "LOAD", "ls", NX_BRASS_DIM), (x0, temp_bar + 6, "TEMP", "ls", NX_BRASS_DIM)])
+        displays.extend([
+            dict(SOURCE=f"{src}_load", XS=tubes(x0, 3, w, 2), Y=ty, W=w, H=h, FORMAT="{:3.0f}",
+                 BAR=[bar_x, load_bar, bar_w, 5, 0, 100]),
+            dict(SOURCE=f"{src}_temp", XS=tubes(x0 + temp_dx, 2, w, 2), Y=ty, W=w, H=h, FORMAT="{:2.0f}",
+                 ALERT=TEMP_ALERT, LAMP=[xr - 4, y1 + 10, 5], BAR=[bar_x, temp_bar, bar_w, 5, TEMP_GRAPH_MIN, TEMP_GRAPH_MAX]),
+            dict(SOURCE=f"{src}_clk", XS=tubes(xr - clk_tubes * pitch + 2, clk_tubes, w, 2), Y=ty, W=w, H=h,
+                 FORMAT=clk_fmt),
+        ])
+
+    def gauge(x, cell_w, label_bl, label, src, maximum, w, h, gap, bar_dx, bar_y, readout):
+        labels.append((x, label_bl, label, "ls", NX_BRASS_DIM))
+        displays.append(dict(SOURCE=src, XS=tubes(x, 3, w, gap), Y=label_bl + 4, W=w, H=h, FORMAT="{:3.0f}",
+                             BAR=[x + bar_dx, bar_y, cell_w - bar_dx, 5, 0, maximum]))
+        readouts[readout] = (x + cell_w, label_bl)
+
+    if not portrait:
+        title = dict(logo=(12, 30), sub=(12, 48))
+        colons = clock(240, 6, 26, 56)
+        readouts.update(date=(474, 24), uptime=(474, 44))
+        stage((4, 68, 236, 180), "CPU", "ZEN2 6C/12T", "cpu", 3, "{:4.2f}", "CLK GHZ", 17, 38, 73)
+        stage((244, 68, 476, 180), "GPU", "RDNA2 24CU", "gpu", 4, "{:4.0f}", "CLK MHZ", 17, 38, 73)
+        boxes.append((4, 186, 476, 272))
+        for x, label, src, maximum, readout in ((14, "RAM %", "ram", 100, "used"), (170, "SSD %", "ssd", 100, "free"),
+                                                (326, "APU W", "pwr", POWER_BAR_MAX, "gpumem")):
+            gauge(x, 140, 200, label, src, maximum, 15, 32, 2, 59, 214, readout)
+        for x, label, key in ((14, "↓ DOWN", "rx"), (170, "↑ UP", "tx"), (326, "PING", "ping")):
+            labels.append((x, 248, label, "ls", NX_BRASS_DIM))
+            readouts[key] = (x, 268, M)
+        prompt_box = (4, 276, 476, 318)
+    else:
+        title = dict(logo=(8, 14), sub=None)
+        readouts.update(date=(312, 14))
+        colons = clock(160, 22, 30, 62)
+        readouts.update(uptime=(8, 100), ping=(312, 100, S))
+        stage((4, 106, 316, 210), "CPU", "ZEN2 6C/12T", "cpu", 3, "{:4.2f}", "CLK GHZ", 19, 40, 92)
+        stage((4, 214, 316, 318), "GPU", "RDNA2 24CU", "gpu", 4, "{:4.0f}", "CLK MHZ", 19, 40, 92)
+        boxes.append((4, 324, 316, 420))
+        for x, label, src, maximum, readout in ((14, "RAM %", "ram", 100, "used"), (118, "SSD %", "ssd", 100, "free"),
+                                                (222, "APU W", "pwr", POWER_BAR_MAX, "gpumem")):
+            gauge(x, 88, 338, label, src, maximum, 14, 30, 1, 52, 352, readout)
+        for x, label, key in ((14, "↓ DOWN", "rx"), (162, "↑ UP", "tx")):
+            labels.append((x, 388, label, "ls", NX_BRASS_DIM))
+            readouts[key] = (x, 408, M)
+        prompt_box = (4, 422, 316, 478)
+    NIXIE.clear()
+    NIXIE.update(title=title, colons=colons, readouts=readouts, displays=displays, labels=labels, boxes=boxes,
+                 prompt_box=prompt_box)
+
+
+def nixie_splash_layout(portrait):
+    if not portrait:
+        return dict(logo_bl=40, sub_bl=58, tube=(40, 86), tube_y=72, lamps_y=192, lamps_x=(72, 408), lamp_label_bl=214,
+                    text_bl=246, status_bl=274, footer_bl=308)
+    return dict(logo_bl=36, sub_bl=56, tube=(40, 86), tube_y=72, lamps_y=196, lamps_x=(40, 280), lamp_label_bl=216,
+                text_bl=252, status_bl=282, footer_bl=470)
+
+
+NX_LAMP_LABELS = ("CPU", "MEM", "GPU", "TEMP", "DISK", "NET", "STEAM")
+
+
+def brushed_panel(c):
+    """Black anodised front with a faint horizontal brush."""
+    rnd = random.Random(250)
+    for y in range(H):
+        v = 9 + rnd.randrange(0, 4)
+        c.d.line((0, y, W, y), fill=(v, v - 1, v - 2))
+
+
+def brass_frame(c, box):
+    x1, y1, x2, y2 = box
+    c.d.rounded_rectangle(box, radius=3, outline=NX_BRASS_DIM)
+    for sx, sy in ((x1 + 4, y1 + 4), (x2 - 4, y1 + 4), (x1 + 4, y2 - 4), (x2 - 4, y2 - 4)):
+        c.d.ellipse((sx - 1, sy - 1, sx + 1, sy + 1), fill=NX_BRASS_DIM)  # screw heads
+
+
+def nixie_mesh(w, h):
+    """The anode mesh in front of the cathodes: a fine diamond grid (sensors_bc250 uses the same pattern)."""
+    m = Image.new("L", (w, h), 255)
+    d = ImageDraw.Draw(m)
+    for k in range(-h, w + h, 4):
+        d.line((k, 0, k + h, h), fill=200)
+        d.line((k, h, k + h, 0), fill=200)
+    return m
+
+
+def unlit_tube(c, x, y, w, h):
+    """A Nixie tube switched off: dark glass, the stack of cathodes faintly visible behind the mesh."""
+    tube = Image.new("RGB", (w, h), (8, 6, 5))
+    d = ImageDraw.Draw(tube)
+    d.rounded_rectangle((0, 0, w - 1, h - 1), radius=max(3, w // 3), fill=NX_GLASS, outline=(64, 50, 40))
+    f = font_file(NIXIE_FONT, int(h * 0.82))
+    ghost = Image.new("L", (w * 2, h), 0)
+    for digit in "0123456789":
+        ImageDraw.Draw(ghost).text((w, h // 2 + 1), digit, font=f, fill=46, anchor="mm")
+    tube.paste(NX_GHOST, (0, 0, w, h), ghost.resize((w, h)))
+    tube = ImageChops.multiply(tube, Image.merge("RGB", [nixie_mesh(w, h)] * 3))
+    ImageDraw.Draw(tube).line((2, 4, 2, h - 6), fill=(64, 58, 54))  # glass reflection
+    c.img.paste(tube, (x, y))
+
+
+def bar_tube(c, x, y, w, h):
+    """An empty IN-13 style bar tube: a thin dark glass rod."""
+    c.d.rounded_rectangle((x - 2, y - 2, x + w + 1, y + h + 1), radius=3, fill=NX_GLASS, outline=(64, 50, 40))
+
+
+def neon_lamp(c, x, y, r):
+    c.d.ellipse((x - r, y - r, x + r, y + r), fill=(40, 22, 18), outline=(70, 52, 42))
+
+
+def render_background_nixie(title):
+    nx = NIXIE
+    c = Canvas()
+    brushed_panel(c)
+    logo_size = M if len(LOGO) * CH[M] <= 124 else S
+    lx, lb = nx["title"]["logo"]
+    c.label(lx, lb, LOGO if nx["title"]["sub"] or len(LOGO) * CH[logo_size] <= 124 else LOGO[:20], NX_BRASS,
+            size=logo_size if nx["title"]["sub"] else S, glow=False)
+    if nx["title"]["sub"]:
+        c.label(nx["title"]["sub"][0], nx["title"]["sub"][1], SUBTITLE[:20], NX_BRASS_DIM, glow=False)
+    for box in nx["boxes"]:
+        brass_frame(c, box)
+    brass_frame(c, nx["prompt_box"])
+    for x, bl, text_, anchor, color in nx["labels"]:
+        c.label(x, bl, text_, color, anchor=anchor, glow=False)
+    for disp in nx["displays"]:
+        for x in disp["XS"]:
+            unlit_tube(c, x, disp["Y"], disp["W"], disp["H"])
+        if "BAR" in disp:
+            bar_tube(c, *disp["BAR"][:4])
+        if "LAMP" in disp:
+            neon_lamp(c, *disp["LAMP"])
+    for x, y in nx["colons"]:
+        neon_lamp(c, x, y, 2)
+    return c.finish()
+
+
+def render_splash_nixie(prompt):
+    sl = SPLASH_LAYOUT
+    c = Canvas()
+    brushed_panel(c)
+    size = L if len(LOGO) * CH[L] <= W - 24 else M if len(LOGO) * CH[M] <= W - 24 else S
+    c.label(W // 2, sl["logo_bl"], LOGO, NX_BRASS, anchor="ms", size=size, glow=False)
+    c.label(W // 2, sl["sub_bl"], spaced(SUBTITLE), NX_BRASS_DIM, anchor="ms", glow=False)
+    for x in sl["tube_xs"]:
+        unlit_tube(c, x, sl["tube_y"], *sl["tube"])
+    for x, y in sl["colons"]:
+        neon_lamp(c, x, y, 3)
+    for (x, y), name in zip(sl["lamps"], NX_LAMP_LABELS):
+        neon_lamp(c, x, y, 6)
+        c.label(x, sl["lamp_label_bl"], name, NX_BRASS_DIM, anchor="ms", glow=False)
+    c.label(W // 2, sl["footer_bl"], f"NIXIE BOARD  170 V  {prompt}"[:(W - 16) // CH[S]], NX_BRASS_DIM, anchor="ms",
+            glow=False)
+    return c.finish()
+
+
+def nixie_theme(theme, title):
+    """Replaces the dashboard widgets of a theme built by build_theme(): the tubes draw almost everything, the app
+    keeps the plain readouts (date, uptime, network, ping, small sub-values), the prompt and the screen power."""
+    nx, ro = NIXIE, NIXIE["readouts"]
+    custom = theme["STATS"]["CUSTOM"]
+    amber, dim = SKIN["value"], NX_BRASS
+    spec = {"FONT": NIXIE_FONT, "DISPLAYS": nx["displays"], "COLONS": nx["colons"], "BACKGROUND_IMAGE": "background.png",
+            "GLOW": rgb((255, 90, 18)), "CORE": rgb((255, 196, 120)), "LAMP_ON": rgb((255, 60, 30))}
+    stats = {
+        "MEMORY": {"INTERVAL": 2, "VIRTUAL": {"USED": text(*ro["used"], S, 8, dim, right=True)}},
+        "NET": {"INTERVAL": 1, "ETH": {"DOWNLOAD": {"TEXT": text(ro["rx"][0], ro["rx"][1], M, 11, amber)},
+                                       "UPLOAD": {"TEXT": text(ro["tx"][0], ro["tx"][1], M, 11, amber)}}},
+        "PING": {"INTERVAL": 5, "TEXT": text(ro["ping"][0], ro["ping"][1], ro["ping"][2], 8, amber,
+                                             right=ro["ping"][2] == S)},
+        "DATE": {"INTERVAL": 1, "DAY": {"TEXT": text(*ro["date"], S, 14, amber, right=True, FORMAT="EEE dd MMM")}},
+        "UPTIME": {"INTERVAL": 1, "FORMATTED": {"TEXT": text(*ro["uptime"], S, 20, NX_BRASS_DIM,
+                                                             right=ro["uptime"][0] > W // 2)}},
+        "CUSTOM": {
+            "INTERVAL": 1,
+            # sampled for the tubes (and the session peaks), drawn by nothing else
+            # (an empty entry would be written as null, which the app can't read)
+            "Bc250CpuTemp": {"ALERT": TEMP_ALERT}, "Bc250GpuTemp": {"ALERT": TEMP_ALERT},
+            "Bc250GpuLoad": {"SAMPLE_ONLY": True}, "Bc250ApuPower": {"SAMPLE_ONLY": True},
+            "Bc250GameDiskFree": {"TEXT": text(*ro["free"], S, 7, dim, right=True)},
+            "Bc250GpuMem": {"TEXT": text(*ro["gpumem"], S, 6, dim, right=True)},
+            "Bc250Nixie": spec,
+            "Bc250Prompt": custom["Bc250Prompt"],
+            "Bc250Screen": custom["Bc250Screen"],
+        },
+    }
+    theme["STATS"] = stats
+    return theme
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate a BC-250 theme for turing-smart-screen-python")
     parser.add_argument("--app", required=True, help="turing-smart-screen-python folder (fonts are read, theme written)")
@@ -1517,6 +1780,10 @@ if __name__ == "__main__":
         render_splash_gameboy(title, prompt).save(THEME_DIR / "splash.png")
         render_splash_gameboy(title, prompt, logo=False).save(THEME_DIR / "splash_nologo.png")
         render_splash_gameboy(title, prompt, logo=False, menu=False).save(THEME_DIR / "splash_blank.png")
+    elif SKIN_NAME == "nixie":
+        nixie_layout(PORTRAIT)  # here: it needs the --alert and power options
+        render_background_nixie(title).save(THEME_DIR / "background.png")
+        render_splash_nixie(prompt).save(THEME_DIR / "splash.png")
     elif SKIN_NAME == "minecraft":
         render_background_minecraft(title).save(THEME_DIR / "background.png")
         render_splash_minecraft().save(THEME_DIR / "splash.png")
@@ -1544,7 +1811,8 @@ if __name__ == "__main__":
              "retrowave": "BC250-Retrowave - neon synthwave sunset",
              "videotex": "BC250-Videotex - 40-column, 8-colour videotex pages",
              "mission": "BC250-Mission - 1969 mission control console",
-             "minecraft": "BC250-Minecraft - blocky inventory screen (fan theme, not affiliated with Mojang)"}
+             "minecraft": "BC250-Minecraft - blocky inventory screen (fan theme, not affiliated with Mojang)",
+             "nixie": "BC250-Nixie - Nixie tube instrument panel"}
     header = (f"# {names[SKIN_NAME]} for an AMD BC-250 Steam Machine\n"
               f"# Turing 3.5\" {'portrait' if PORTRAIT else 'landscape'}. GENERATED by make_theme.py: "
               "edit the script or its options and re-run it.\n"

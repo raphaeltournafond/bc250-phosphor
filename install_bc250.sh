@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Installs a BC-250 theme (Phosphor, Game Boy, Retrowave, Videotex, Mission or Minecraft) into a turing-smart-screen-python checkout.
+# Installs a BC-250 theme (Phosphor, Game Boy, Retrowave, Videotex, Mission, Minecraft or Nixie) into a turing-smart-screen-python checkout.
 # Usage: ./install_bc250.sh /path/to/turing-smart-screen-python [options]
-#   --theme NAME   phosphor (green terminal), gameboy (RPG screen), retrowave (neon), videotex (Minitel), mission (Apollo console) or minecraft
+#   --theme NAME   phosphor (green terminal), gameboy (RPG screen), retrowave (neon), videotex (Minitel), mission (Apollo console), minecraft or nixie
 #   --user NAME    user in the "user@host:~$" prompt   (default: your login, $(whoami))
 #   --host NAME    host in the prompt                  (default: $(hostname -s))
 #   --title TEXT   header text                         (default: <LOGO>::<USER>)
@@ -47,7 +47,8 @@ case "$THEME_NAME" in
   videotex) THEME_FOLDER=BC250-Videotex ;;
   mission) THEME_FOLDER=BC250-Mission ;;
   minecraft) THEME_FOLDER=BC250-Minecraft ;;
-  *) echo "Unknown theme: $THEME_NAME (phosphor, gameboy, retrowave, videotex, mission or minecraft)" >&2; exit 1 ;;
+  nixie) THEME_FOLDER=BC250-Nixie ;;
+  *) echo "Unknown theme: $THEME_NAME (phosphor, gameboy, retrowave, videotex, mission, minecraft or nixie)" >&2; exit 1 ;;
 esac
 
 for theme in "$SRC"/res/themes/BC250-*; do cp -r "$theme" "$REPO/res/themes/"; done
