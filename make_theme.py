@@ -1,6 +1,6 @@
 # BC-250 theme generator for turing-smart-screen-python: renders the artwork and writes theme.yaml of one theme
 # from a single layout, so static art and live widgets always line up.
-#     python3 make_theme.py --app ~/turing-smart-screen-python [--theme phosphor|gameboy|retrowave|videotex|mission] [--portrait] [...]
+#     python3 make_theme.py --app ~/turing-smart-screen-python [--theme phosphor|gameboy|retrowave|videotex|mission|minecraft] [--portrait] [...]
 #     python3 make_theme.py --help
 # The theme is written to <app>/res/themes/BC250-<Theme> (fonts are read from <app>/res/fonts).
 #
@@ -71,6 +71,12 @@ SKINS = {
                     mid=(255, 176, 40), value=(232, 232, 220), accent=(255, 176, 40), cold=(232, 232, 220),
                     hot=(255, 176, 40), alert=(240, 60, 50), ink=(10, 10, 10), grid_dot=(34, 38, 38),
                     bar=(255, 176, 40), green=(70, 220, 100), palette=None),
+    # Minecraft-inspired: light grey inventory panels on dark dirt, dark grey text, XP-green bars,
+    # heat in the game's chat colours (dark green -> gold -> red)
+    "minecraft": dict(folder="BC250-Minecraft", bg=(40, 29, 21), dim=(120, 120, 120), mid=(63, 63, 63),
+                      value=(63, 63, 63), accent=(255, 170, 0), cold=(0, 150, 0), hot=(230, 140, 0),
+                      alert=(200, 30, 30), ink=(255, 255, 255), grid_dot=(150, 150, 150), bar=(110, 220, 30),
+                      palette=None),
 }
 SKIN_NAME = "phosphor"
 SKIN = SKINS[SKIN_NAME]
@@ -169,7 +175,8 @@ def set_layout(portrait: bool, skin: str = "phosphor"):
     global PROMPT_Y, PROMPT_LABEL_BL, PROMPT_VALUE_BL, PROMPT_COLS_BL, PROMPT_X, PROMPT_XR, PROMPT_AREA
     global PROMPT_COL1_XR, PROMPT_COLS, SPLASH_LAYOUT
     PORTRAIT, SKIN_NAME, SKIN = portrait, skin, SKINS[skin]
-    gameboy, retro, videotex, mission = (skin == name for name in ("gameboy", "retrowave", "videotex", "mission"))
+    gameboy, retro, videotex, mission, blocky = (skin == name for name in
+                                                ("gameboy", "retrowave", "videotex", "mission", "minecraft"))
     card = gameboy_card if gameboy else (lambda *box: phosphor_panel(*box, col_a_offset=130 if portrait else 100))
     if not portrait:  # 480x320: CPU and GPU side by side, 3x2 grid, one-line prompt
         W, H = 480, 320
@@ -212,6 +219,11 @@ def set_layout(portrait: bool, skin: str = "phosphor"):
                 plate=(8, 6, 288, 56), count_box=(296, 6, 473, 56), count_bl=49, crt=(8, 62, 472, 312),
                 head_bl=82, row_bl=108, row_step=22, label_x=20, value_x=104, status_xr=460,
                 status_bl=270, liftoff_bl=294, progress_bl=0, bar=(0, 0, 0, 0))  # no loading bar: the countdown
+        if blocky:  # logo and splash text on dirt, the self-test in a panel, the terrain bar under it
+            SPLASH_LAYOUT = dict(
+                logo_center=(240, 46), logo_max_w=330, splash_at=(404, 62), panel=(30, 90, 450, 254),
+                title_bl=106, row_bl=127, row_step=17, label_x=44, value_x=104, status_xr=436,
+                progress_bl=272, bar=(140, 280, 200, 6), status_bl=272, footer_bl=313)
     else:  # 320x480: panels stacked, 2x3 grid, prompt with its values on a row of their own
         W, H = 320, 480
         DATE_XR = None  # no room for the date in the header
@@ -253,6 +265,11 @@ def set_layout(portrait: bool, skin: str = "phosphor"):
                 plate=(8, 6, 312, 58), count_box=(8, 64, 312, 112), count_bl=104, crt=(8, 120, 312, 472),
                 head_bl=140, row_bl=168, row_step=26, label_x=18, value_x=84, status_xr=302,
                 status_bl=372, liftoff_bl=400, progress_bl=0, bar=(0, 0, 0, 0))  # no loading bar: the countdown
+        if blocky:
+            SPLASH_LAYOUT = dict(
+                logo_center=(160, 52), logo_max_w=290, splash_at=(240, 92), panel=(10, 116, 310, 322),
+                title_bl=133, row_bl=158, row_step=24, label_x=22, value_x=82, status_xr=298,
+                progress_bl=356, bar=(60, 366, 200, 6), status_bl=356, footer_bl=470)
     CLOCK_XR = W - 6
     GRID_COLS = [GRID[0] + 10 + i * (CELL_W + CELL_GAP) for i in range(grid_cols)]
     grid_rows_y = [GRID[1] + 8 + i * 48 for i in range(grid_rows)]
@@ -263,6 +280,9 @@ def set_layout(portrait: bool, skin: str = "phosphor"):
     PROMPT_AREA = (6, PROMPT_Y + 3, W - 12, H - PROMPT_Y - 6) if gameboy else (6, PROMPT_Y + 2, W - 12, H - PROMPT_Y - 2)
     if videotex:
         PROMPT_AREA = (0, PROMPT_Y, W, H - PROMPT_Y)
+    if blocky:
+        for p in (cpu, gpu):  # HOT! flashes over the name on the panel's tab
+            p["tag"] = (p["box"][0] + 8, p["box"][1] - 11, 5 * CH[S] + 2, 12)
     if mission:
         for p in (cpu, gpu):  # ALARM (5 letters) over the nameplate instead of HOT!
             p["tag"] = (p["box"][0] + 8, p["box"][1] - 6, 5 * CH[S] + 12, 13)
@@ -353,6 +373,8 @@ def heat_widget(p):
         widget["HEAT_GRAPH"]["STYLE"] = "mosaic"
     if SKIN_NAME == "mission":
         widget["ALERT_TAG"]["TEXT"] = "ALARM"
+    if SKIN_NAME == "minecraft":  # history as a column of little blocks
+        widget["HEAT_GRAPH"].update({"STYLE": "blocks", "BLOCK": [6, 6]})
     return widget
 
 
@@ -406,6 +428,15 @@ MISSION_WORDS = {"boot": "COUNTDOWN", "now-playing": "FLIGHT:", "downloading": "
                  "idle": "HOLDING", "idle-text": "AWAITING GO"}
 
 
+# Minecraft-style wording of the status line ("PLAYING Hades II"; idle: "AFK" / "rafale is AFK")
+MINECRAFT_WORDS = {"boot": "LOADING WORLD", "now-playing": "PLAYING", "downloading": "DOWNLOADING TERRAIN",
+                   "installing": "BUILDING TERRAIN", "verifying": "CHECKING CHUNKS",
+                   "fossilize_replay": "GENERATING SHADERS", "last-session": "LAST WORLD", "idle": "AFK"}
+MINECRAFT_SPLASHES = ["Ex-mining rig!", "Now with RDNA2!", "6 cores, 12 threads!", "GDDR6 for everyone!",
+                      "Steam powered!", "100% blocky!", "Runs Bazzite!", "Not a Steam Deck!", "Survival mode!",
+                      "Also try Phosphor!", "Mined, then crafted!", "Zen 2 inside!"]
+
+
 def videotex_code(logo):
     """The service code of the boot screen: 3615 + the logo's letters and digits."""
     return "3615 " + ("".join(ch for ch in logo.upper() if ch.isalnum())[:12] or "BC250")
@@ -413,7 +444,8 @@ def videotex_code(logo):
 
 def prompt_prefix(user, prompt):
     """What precedes the live command word in the prompt's label row."""
-    return {"gameboy": user.upper(), "retrowave": f"1UP {user.upper()}", "videotex": "", "mission": ""}.get(SKIN_NAME, prompt)
+    return {"gameboy": user.upper(), "retrowave": f"1UP {user.upper()}", "videotex": "", "mission": "",
+            "minecraft": ""}.get(SKIN_NAME, prompt)
 
 
 def build_theme(title, prompt, user):
@@ -421,7 +453,7 @@ def build_theme(title, prompt, user):
     net_spark = dict(max_value=10_000_000_000, autoscale=True)
     ram, ssd, pwr, rx, tx, ping = (cells[k] for k in ("ram", "ssd", "pwr", "rx", "tx", "ping"))
     sl = SPLASH_LAYOUT
-    header_ink = SKIN["value"] if SKIN_NAME in ("gameboy", "videotex", "mission") else SKIN["ink"]
+    header_ink = SKIN["value"] if SKIN_NAME in ("gameboy", "videotex", "mission") else SKIN["ink"]  # minecraft: white
     clock_ink = SKIN["accent"] if SKIN_NAME in ("videotex", "mission") else header_ink  # the time in yellow / amber
     date = {"INTERVAL": 1}
     if DATE_XR:
@@ -441,6 +473,10 @@ def build_theme(title, prompt, user):
         prompt_spec.update({"CMD_WORDS": GAMEBOY_WORDS, "CURSOR": "▼", "LABEL_COLOR": rgb(SKIN["mid"])})
     if SKIN_NAME == "retrowave":
         prompt_spec.update({"CMD_WORDS": RETRO_WORDS, "LABEL_COLOR": rgb(SKIN["accent"])})
+    if SKIN_NAME == "minecraft":  # white and yellow on the dark chat box
+        prompt_spec.update({"CMD_WORDS": dict(MINECRAFT_WORDS, **{"idle-text": f"{user} is AFK"}),
+                            "BRIGHT": rgb((255, 255, 255)), "LABEL_COLOR": rgb((255, 255, 85)),
+                            "COL_WORDS": {"SESSION": "PLAYTIME", "TIME": "PLAYTIME"}})
     if SKIN_NAME == "mission":
         prompt_spec.update({"CMD_WORDS": MISSION_WORDS, "LABEL_COLOR": rgb(SKIN["accent"]),
                             "COL_WORDS": {"SESSION": "FLT TIME", "TIME": "FLT TIME", "PEAK C/G": "PEAK THRM"}})
@@ -468,7 +504,7 @@ def build_theme(title, prompt, user):
         "BAR_Y": sl["bar"][1], "BAR_W": sl["bar"][2], "BAR_H": sl["bar"][3],
         "IMAGE_NOLOGO": "splash_nologo.png", "LOGO_TEXT": LOGO,
     }
-    if SKIN_NAME not in ("retrowave", "videotex", "mission"):  # the pixel-font logo
+    if SKIN_NAME not in ("retrowave", "videotex", "mission", "minecraft"):  # the pixel-font logo
         splash.update({"LOGO_SIZE": logo_size(LOGO), "LOGO_BL": logo_baseline(logo_size(LOGO)),
                        "LOGO_BOX": list(sl["logo_box"])})
     if SKIN_NAME == "phosphor":  # the dark tube the warm-up starts from: only the text has to be sent after it
@@ -482,6 +518,10 @@ def build_theme(title, prompt, user):
                        "LOGO_BOX": list(logo["face_box"]), "REVEAL_BOX": list(RETRO_REVEAL_BOX),
                        "HORIZON": sl["horizon"], "PANEL": list(sl["panel"]), "GRID_COLOR": rgb(SKIN["mid"]),
                        "GRID_SPACING": W // 8, "FOOTER_BL": sl.get("footer_bl", 0)})
+    if SKIN_NAME == "minecraft":
+        splash.update({"STYLE": "minecraft", "SPLASH_TEXTS": MINECRAFT_SPLASHES, "SPLASH_AT": list(sl["splash_at"]),
+                       "GREEN": rgb((0, 150, 0)), "TEXT": rgb(SKIN["value"]), "WHITE": rgb((255, 255, 255)),
+                       "TITLE_BL": sl["title_bl"]})
     if SKIN_NAME == "mission":
         splash.update({"STYLE": "mission", "IMAGE_BLANK": "splash.png", "GREEN": rgb(SKIN["green"]),
                        "COUNT_BOX": list(sl["count_box"]), "COUNT_BL": sl["count_bl"], "HEAD_BL": sl["head_bl"],
@@ -663,7 +703,7 @@ class Canvas:
     def finish(self):
         if SKIN_NAME == "gameboy":
             return self.lcd_grid(self.img)
-        if SKIN_NAME == "videotex":  # flat colours, nothing else
+        if SKIN_NAME in ("videotex", "minecraft"):  # flat colours, nothing else
             return self.img
         if SKIN_NAME == "mission":  # soft glow of the text, scanlines on the CRT glass only
             img = ImageChops.add(self.img, self.glow.filter(ImageFilter.GaussianBlur(3)).point(lambda v: int(v * 0.45)))
@@ -1252,6 +1292,164 @@ def render_splash_mission():
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+# Minecraft-inspired artwork (all drawn here: no game assets)
+# ---------------------------------------------------------------------------------------------------------------------
+MCR_PANEL, MCR_LIGHT, MCR_SHADE = (198, 198, 198), (255, 255, 255), (85, 85, 85)
+MCR_SLOT, MCR_SLOT_DARK = (139, 139, 139), (55, 55, 55)
+MCR_DIRT = [(134, 96, 67), (121, 85, 58), (150, 108, 74), (108, 76, 50), (96, 67, 45), (140, 102, 70)]
+MCR_STONE = [(128, 128, 128), (118, 118, 118), (140, 140, 140), (108, 108, 108), (124, 124, 124)]
+MCR_LABELS = {"ram": ("RAM", "USED"), "ssd": ("GAMES SSD", "FREE"), "pwr": ("APU PWR", "GPU MEM"),
+              "rx": ("↓ DOWNLOAD", None), "tx": ("↑ UPLOAD", None), "ping": ("PING", None)}
+
+
+def dirt(c, darkness):
+    """The menu background: 16x16 dirt texels, 2 px each, darkened."""
+    rnd = random.Random(250)
+    tile = Image.new("RGB", (16, 16))
+    tile.putdata([mix(rnd.choice(MCR_DIRT), (0, 0, 0), darkness) for _ in range(256)])
+    tile = tile.resize((32, 32), Image.NEAREST)
+    for y in range(0, H, 32):
+        for x in range(0, W, 32):
+            c.img.paste(tile, (x, y))
+
+
+def gui_panel(c, box):
+    """An inventory panel: black outline with notched corners, white top/left and dark bottom/right bevels."""
+    x1, y1, x2, y2 = box
+    c.d.rectangle((x1 + 1, y1, x2 - 1, y2), fill=(0, 0, 0))
+    c.d.rectangle((x1, y1 + 1, x2, y2 - 1), fill=(0, 0, 0))
+    c.d.rectangle((x1 + 1, y1 + 1, x2 - 1, y2 - 1), fill=MCR_PANEL)
+    c.d.rectangle((x1 + 1, y1 + 1, x2 - 3, y1 + 2), fill=MCR_LIGHT)
+    c.d.rectangle((x1 + 1, y1 + 1, x1 + 2, y2 - 3), fill=MCR_LIGHT)
+    c.d.rectangle((x1 + 3, y2 - 2, x2 - 1, y2 - 1), fill=MCR_SHADE)
+    c.d.rectangle((x2 - 2, y1 + 3, x2 - 1, y2 - 1), fill=MCR_SHADE)
+
+
+def slot(c, box):
+    """A sunken inventory slot: dark top/left edge, white bottom/right edge."""
+    x1, y1, x2, y2 = box
+    c.d.rectangle((x1, y1, x2, y2), fill=MCR_SLOT)
+    c.d.line((x1, y1, x2, y1), fill=MCR_SLOT_DARK)
+    c.d.line((x1, y1, x1, y2), fill=MCR_SLOT_DARK)
+    c.d.line((x1, y2, x2, y2), fill=MCR_LIGHT)
+    c.d.line((x2, y1, x2, y2), fill=MCR_LIGHT)
+
+
+def tab(c, x, y, title):
+    """A creative-inventory tab standing on a panel's top edge, (x, y) = its top-left."""
+    w = len(title) * CH[S] + 10
+    c.d.rectangle((x, y, x + w, y + 12), fill=(0, 0, 0))
+    c.d.rectangle((x + 1, y + 1, x + w - 1, y + 12), fill=MCR_PANEL)
+    c.d.line((x + 1, y + 1, x + w - 1, y + 1), fill=MCR_LIGHT)
+    c.label(x + 5, y + 10, title, SKIN["value"], glow=False)
+
+
+def xp_track(c, x, y, w, h):
+    """The empty XP bar: dark, with notches every 1/18."""
+    c.d.rectangle((x - 1, y - 1, x + w, y + h), fill=(0, 0, 0))
+    c.d.rectangle((x, y, x + w - 1, y + h - 1), fill=(40, 40, 40))
+    for i in range(1, 18):
+        nx = x + round(i * w / 18)
+        c.d.line((nx, y, nx, y + h - 1), fill=(20, 20, 20))
+
+
+def chat_box(c, box):
+    """The translucent black box behind chat and debug text."""
+    region = c.img.crop(box)
+    c.img.paste(region.point(lambda v: v * 45 // 100), box[:2])
+
+
+def stone_letters(c, text, center, max_w):
+    """The logo built from stone blocks: each pixel of the pixel font a textured block with a dark 3D side."""
+    mask = Image.new("L", (len(text) * CH[S] + 4, 16), 0)
+    ImageDraw.Draw(mask).text((1, 1), text, font=font(S), fill=255)
+    box = mask.getbbox()
+    if not box:
+        return
+    mask = mask.crop(box)
+    gw, gh = mask.size
+    b = next((v for v in (8, 7, 6, 5, 4, 3, 2) if gw * v + 4 <= max_w), 2)
+    x0, y0 = center[0] - gw * b // 2, center[1] - gh * b // 2
+    on = [(i, j) for j in range(gh) for i in range(gw) if mask.getpixel((i, j)) > 127]
+    rnd = random.Random(250)
+    depth = max(2, b // 2)
+    for i, j in on:  # the sides, darkest at the back
+        for d in range(depth, 0, -1):
+            c.d.rectangle((x0 + i * b + d, y0 + j * b + d, x0 + i * b + b - 1 + d, y0 + j * b + b - 1 + d),
+                          fill=mix((70, 70, 70), (25, 25, 25), d / depth))
+    for i, j in on:  # the faces: a few texels of stone each, a light top edge
+        x, y = x0 + i * b, y0 + j * b
+        for ty in range(0, b, 2):
+            for tx in range(0, b, 2):
+                c.d.rectangle((x + tx, y + ty, x + min(b, tx + 2) - 1, y + min(b, ty + 2) - 1),
+                              fill=rnd.choice(MCR_STONE))
+        c.d.line((x, y, x + b - 1, y), fill=(170, 170, 170))
+    for i, j in on:  # a dark outline where a block has no neighbour
+        x, y = x0 + i * b, y0 + j * b
+        if (i, j - 1) not in on:
+            c.d.line((x, y - 1, x + b - 1, y - 1), fill=(30, 30, 30))
+        if (i - 1, j) not in on:
+            c.d.line((x - 1, y, x - 1, y + b - 1), fill=(30, 30, 30))
+
+
+def render_background_minecraft(title):
+    c = Canvas()
+    dirt(c, 0.62)
+    up_x, _, uptime_chars = header_layout(title)
+    chat_box(c, (0, 0, W, HEADER_H + 1))
+    c.label(6, HEADER_BL, title, (255, 255, 255), glow=False)
+    if uptime_chars:
+        c.label(up_x, HEADER_BL, "UP", (170, 170, 170), glow=False)
+
+    for p, name in ((cpu, "CPU  ZEN2 6C/12T"), (gpu, "GPU  RDNA2 24CU")):
+        x1, y1, x2, y2 = p["box"]
+        gui_panel(c, p["box"])
+        tab(c, x1 + 8, y1 - 11, name)
+        c.label(p["col_a"], p["label_bl"], "TEMP", glow=False)
+        c.label(p["xr"], p["label_bl"], "CLK GHZ" if p is cpu else "CLK MHZ", anchor="rs", glow=False)
+        xp_track(c, *p["bar"])
+        gx, gy, gw, gh = p["graph"]
+        slot(c, (gx - 1, gy - 1, gx + gw, gy + gh))
+
+    gui_panel(c, GRID)
+    for key, (label, sublabel) in MCR_LABELS.items():
+        cl = cells[key]
+        c.label(cl["x0"], cl["label_bl"], label, glow=False)
+        if sublabel:
+            c.label(cl["xr"], cl["label_bl"], sublabel, SKIN["dim"], anchor="rs", glow=False)
+        if key in ("ram", "ssd", "pwr"):
+            xp_track(c, *cl["bar"])
+        else:
+            x, y, w, h = cl["spark"]
+            slot(c, (x - 1, y - 1, x + w, y + h))
+    for col in range(1, len(GRID_COLS)):
+        x = GRID_COLS[col] - (CELL_GAP + 1) // 2
+        c.d.line((x, GRID[1] + 8, x, GRID[3] - 6), fill=(160, 160, 160))
+
+    chat_box(c, (4, PROMPT_Y, W - 4, H - 2))  # the status line, written live by Bc250Prompt in white and yellow
+    return c.finish()
+
+
+def render_splash_minecraft():
+    """Logo, the self-test panel and the terrain bar's frame. The splash text, rows and bar are drawn live."""
+    sl = SPLASH_LAYOUT
+    c = Canvas()
+    dirt(c, 0.5)
+    stone_letters(c, LOGO, sl["logo_center"], sl["logo_max_w"])
+    gui_panel(c, sl["panel"])
+    c.label(sl["label_x"], sl["title_bl"], f"Loading world: {SUBTITLE.title()}"[:(sl["status_xr"] - sl["label_x"]) // CH[S]],
+            SKIN["value"], glow=False)
+    x, y, w, h = sl["bar"]
+    c.d.rectangle((x - 2, y - 2, x + w + 1, y + h + 1), outline=(255, 255, 255))
+    notice = "fan theme, not by Mojang"
+    c.label(W - 4, sl["footer_bl"], notice, (255, 255, 255), anchor="rs", glow=False)
+    edition = f"{LOGO} Edition"
+    if (len(edition) + len(notice) + 2) * CH[S] <= W - 8:  # the edition line only when it fits beside the notice
+        c.label(4, sl["footer_bl"], edition, (255, 255, 255), glow=False)
+    return c.finish()
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate a BC-250 theme for turing-smart-screen-python")
     parser.add_argument("--app", required=True, help="turing-smart-screen-python folder (fonts are read, theme written)")
@@ -1319,6 +1517,9 @@ if __name__ == "__main__":
         render_splash_gameboy(title, prompt).save(THEME_DIR / "splash.png")
         render_splash_gameboy(title, prompt, logo=False).save(THEME_DIR / "splash_nologo.png")
         render_splash_gameboy(title, prompt, logo=False, menu=False).save(THEME_DIR / "splash_blank.png")
+    elif SKIN_NAME == "minecraft":
+        render_background_minecraft(title).save(THEME_DIR / "background.png")
+        render_splash_minecraft().save(THEME_DIR / "splash.png")
     elif SKIN_NAME == "mission":
         render_background_mission(title).save(THEME_DIR / "background.png")
         render_splash_mission().save(THEME_DIR / "splash.png")
@@ -1342,7 +1543,8 @@ if __name__ == "__main__":
              "gameboy": "BC250-GameBoy - 4-shade handheld RPG status screen",
              "retrowave": "BC250-Retrowave - neon synthwave sunset",
              "videotex": "BC250-Videotex - 40-column, 8-colour videotex pages",
-             "mission": "BC250-Mission - 1969 mission control console"}
+             "mission": "BC250-Mission - 1969 mission control console",
+             "minecraft": "BC250-Minecraft - blocky inventory screen (fan theme, not affiliated with Mojang)"}
     header = (f"# {names[SKIN_NAME]} for an AMD BC-250 Steam Machine\n"
               f"# Turing 3.5\" {'portrait' if PORTRAIT else 'landscape'}. GENERATED by make_theme.py: "
               "edit the script or its options and re-run it.\n"
