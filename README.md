@@ -1,6 +1,6 @@
 # BC250 themes
 
-Eight themes for [turing-smart-screen-python](https://github.com/mathoudebine/turing-smart-screen-python), made for a **3.5" Turing screen** (landscape or portrait) on an **AMD BC-250 Steam Machine running Bazzite**. Seven of them show the same live data; the radar trades some of it for live flights; pick one with `--theme`.
+Eight themes for [turing-smart-screen-python](https://github.com/mathoudebine/turing-smart-screen-python), made for a **3.5" Turing screen** (landscape or portrait) on an **AMD BC-250 Steam Machine running Bazzite**. Seven of them show the same live data, and the radar trades some of it for live flights around a point you choose. Pick one with `--theme`.
 
 **Phosphor** (default): a retro green-phosphor terminal, with a CRT warm-up and a 3D logo at boot.
 
