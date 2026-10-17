@@ -925,9 +925,11 @@ class _Radar:
                 self.memory.pop(hex_, None)
                 continue
             bearing = math.degrees(math.atan2(x, y)) % 360
-            swept = previous is None or (bearing - previous) % 360 <= (angle - previous) % 360
+            swept = previous is not None and (bearing - previous) % 360 <= (angle - previous) % 360
             if swept or hex_ not in self.memory:
-                self.memory[hex_] = {"x": x, "y": y, "plane": plane, "lit": now if swept else now - self.period / 2}
+                # first sight: shown bright (no flash), so the dashboard takes over the splash's scope unchanged
+                lit = now if swept else now - self.period * (0.1 if previous is None else 0.5)
+                self.memory[hex_] = {"x": x, "y": y, "plane": plane, "lit": lit}
         for hex_ in [h for h in self.memory if h not in planes]:
             if now - self.memory[hex_]["lit"] > 2 * self.period:
                 del self.memory[hex_]
@@ -938,7 +940,7 @@ class _Radar:
         k = self.r / self.km
         return self.cx + x * k - self.box[0], self.cy - y * k - self.box[1]
 
-    def scope_frame(self, angle, now, focus):
+    def scope_frame(self, angle, now, focus, limit=None):
         from PIL import Image, ImageDraw
         frame = self.scope.copy()
         layer = Image.new("RGB", frame.size, (0, 0, 0))
@@ -946,7 +948,7 @@ class _Radar:
         ox, oy = self.cx - self.box[0], self.cy - self.box[1]
         # the sweep line, and its afterglow at the positions of the last frames. A full-radius line costs every row
         # it crosses on the screen's link, so it is 1 px wide and the afterglow is a few lines, not a filled wedge
-        trail = self.trail[-1 - int(self.spec.get("TRAIL", 1)):]
+        trail = self.trail[-1 - int(self.spec.get("TRAIL", 1)):] if angle is not None else []
         for i, a in enumerate(trail):
             level = 1.0 if i == len(trail) - 1 else 0.25 + 0.3 * i / max(1, len(trail) - 1)
             a = math.radians(a)
@@ -957,6 +959,8 @@ class _Radar:
         d = ImageDraw.Draw(frame)
         tags = []
         ordered = sorted(self.memory.items(), key=lambda kv: (kv[0] != focus, math.hypot(kv[1]["x"], kv[1]["y"])))
+        if limit is not None:
+            ordered = ordered[:limit]
         for i, (hex_, seen) in enumerate(ordered):
             plane = seen["plane"]
             age = (now - seen["lit"]) / self.period
@@ -2448,7 +2452,7 @@ class _Splash:
         from PIL import Image, ImageDraw
         spec = config.THEME_DATA.get("bc250_splash") or {}
         if not spec.get("ENABLED") or any(a.startswith(("-t", "--theme-screenshots")) for a in sys.argv[1:]):
-            return
+            return None
         size = _Draw.background(spec.get("IMAGE", "splash.png")).size
         lcd = _Screen(lcd, *size)
         started = time.monotonic()
@@ -2456,6 +2460,7 @@ class _Splash:
             cls._play(lcd, spec)
         finally:
             logger.info("BC250: boot splash %.1f s, %.0f KB sent", time.monotonic() - started, lcd.sent / 1000)
+        return lcd  # what the screen shows now: the dashboard can start from it
 
     @classmethod
     def _play(cls, lcd, spec: dict):
@@ -3312,82 +3317,116 @@ class _NixieSplash:
 
 
 class _RadarSplash:
-    """Radar boot: the scope powers up, its range rings and map draw out from the centre, the sweep starts turning
-    while the self-test runs in the side panel, and the first aircraft appear as the sweep finds them."""
-    STATUS = {"OK": ("OK", "SWEEP"), "WAIT": ("WAIT", "MID"), "WARN": ("FAIL", "EMERGENCY"),
-              "HOT!": ("HOT", "EMERGENCY")}
+    """Radar boot, on the dashboard's own scope (it is the cover frame, revealed by the backlight): the range rings
+    light up one by one, a console log runs the self-test, opens the data link and loads the map in the side panel,
+    then the first contacts appear on the scope. No sweep here: the dashboard's sweep starts the moment this ends."""
+    STATUS = {"OK": ("OK", "SWEEP"), "WAIT": ("WAIT", "MID"), "WARN": ("FAIL", "EMERGENCY"), "HOT!": ("HOT", "EMERGENCY")}
 
     @classmethod
     def play(cls, lcd, spec: dict):
         from library import config
         from PIL import Image, ImageDraw
-        blank = _Draw.background(spec.get("IMAGE_BLANK", "splash_blank.png"))
-        full = _Draw.background(spec.get("IMAGE", "splash.png"))
+        base = _Draw.background(spec.get("IMAGE", "background.png"))
         target = max(1, min(100, int(config.CONFIG_DATA["display"].get("BRIGHTNESS", 20))))
         _RadarFeed.start(float(spec["LAT"]), float(spec["LON"]), float(spec["RANGE_KM"]), float(spec.get("REFRESH", 6)))
-        radar = _Radar(spec, lcd, full)
-        small = radar.small
+        radar = _Radar(spec, lcd, base)
+        radar.lcd = lcd  # the splash's screen: everything below sends only what changes
+        small, col = radar.small, radar.col
 
-        # 1. the scope powers up, then its rings and map draw out from the centre
+        # 1. the console in the dark, then the backlight comes up on it
         lcd.SetBrightness(0)
-        lcd.DisplayPILImage(blank, 0, 0)
-        _Splash._animate(0.3, lambda p: lcd.SetBrightness(round(target * p)))
-        box = radar.box
-        empty, mapped = blank.crop(box), full.crop(box)
-        ox, oy = radar.cx - box[0], radar.cy - box[1]
+        lcd.DisplayPILImage(base, 0, 0)  # the one full frame (~2 s on a rev A)
+        _Splash._animate(0.6, lambda p: lcd.SetBrightness(round(target * p)))
 
-        def rings(p):
-            mask = Image.new("L", empty.size, 0)
-            reach = radar.r * p + 2
-            ImageDraw.Draw(mask).ellipse((ox - reach, oy - reach, ox + reach, oy + reach), fill=255)
-            lcd.DisplayPILImage(Image.composite(mapped, empty, mask), box[0], box[1])
+        # the console log in the side panel (scrolling when it is full)
+        lx1, ly1, lx2, ly2 = (int(v) for v in spec["LOG"])
+        rows, chars = (ly2 - ly1) // 14, (lx2 - lx1) // 6
+        lines = []
 
-        _Splash._animate(0.9, rings)
+        def show_log():
+            image = Image.new("RGB", (lx2 - lx1, ly2 - ly1), _Draw.color(spec.get("BG"), (2, 9, 4)))
+            d = ImageDraw.Draw(image)
+            for i, (text, colour) in enumerate(lines[-rows:]):
+                d.text((0, 11 + 14 * i), text[:chars], font=small, fill=colour, anchor="ls")
+            lcd.DisplayPILImage(image, lx1, ly1)
 
-        def sweep():
-            now = time.time()
-            lcd.DisplayPILImage(radar.scope_frame(radar.sweep_over(now), now, None), box[0], box[1])
-
-        # 2. the self-test in the side panel while the sweep turns
-        label_x, status_xr = int(spec["LABEL_X"]), int(spec["STATUS_XR"])
-        chars = int(spec.get("VALUE_CHARS", 12))
-
-        def text(baseline, words, fill, x=label_x, anchor="ls"):
-            strip = full.crop((label_x, baseline - 11, status_xr, baseline + 3))
-            ImageDraw.Draw(strip).text((x - label_x, 11), words, font=small, fill=fill, anchor=anchor)
-            lcd.DisplayPILImage(strip, label_x, baseline - 11)
-
-        def row(index, label, value, status=None):
-            baseline = int(spec["ROW_BL"]) + index * int(spec["ROW_STEP"])
-            strip = full.crop((label_x, baseline - 11, status_xr, baseline + 3))
-            d = ImageDraw.Draw(strip)
-            d.text((0, 11), label, font=small, fill=radar.col["LABEL"], anchor="ls")
-            if chars >= 20:  # the value only where there is room for more than a word of it
-                d.text((6 * 8, 11), _Splash.fit(value, chars), font=small, fill=radar.col["DIM"], anchor="ls")
+        def log(text, colour, replace=False):
+            if replace and lines:
+                lines[-1] = (text, colour)
             else:
-                d.text((6 * 8, 11), "." * chars, font=small, fill=radar.col["DIM"], anchor="ls")
-            word, key = cls.STATUS.get(status, ("..", "DIM")) if status else ("..", "DIM")
-            d.text((status_xr - label_x, 11), word, font=small, fill=radar.col[key], anchor="rs")
-            lcd.DisplayPILImage(strip, label_x, baseline - 11)
+                lines.append((text, colour))
+            show_log()
 
-        lines = _Splash.post_lines(spec)
-        for i, (label, value, status) in enumerate(lines):
-            row(i, label, value)
-            _Splash._run(_Splash.STEP * 0.55, sweep)
-            row(i, label, value, status)
-            _Splash._run(_Splash.STEP * 0.45, sweep)
+        def dots(label, word):
+            return f"{label} {'.' * max(1, chars - len(label) - len(word) - 2)} {word}"
 
-        # 3. waiting for the first answer (a few seconds at most), then the contacts the sweep finds
-        status_bl = int(spec["STATUS_BL"])
-        text(status_bl, "ACQUIRING TARGETS...", radar.col["MID"])
+        # 2. power on: the range rings light up from the centre out
+        log("POWER ON", col["TEXT"])
+        scope = radar.scope.copy()
+        d = ImageDraw.Draw(scope)
+        ox, oy = radar.cx - radar.box[0], radar.cy - radar.box[1]
+        for radius in spec.get("RINGS", []):
+            d.ellipse((ox - radius, oy - radius, ox + radius, oy + radius), outline=_lerp(col["SWEEP"], (0, 0, 0), 0.45))
+            lcd.DisplayPILImage(scope, radar.box[0], radar.box[1])
+            _Splash._wait(0.08)
+
+        # 3. the self-test
+        for label, value, status in _Splash.post_lines(spec):
+            log(dots(label, ".."), col["DIM"])
+            _Splash._wait(_Splash.STEP * 0.55)
+            word, key = cls.STATUS.get(status, ("OK", "SWEEP"))
+            log(dots(label, word), col[key], replace=True)
+            _Splash._wait(_Splash.STEP * 0.45)
+
+        # 4. the map, then the data link (a few seconds at most for the first answer)
+        log(dots("MAP", f"{int(spec.get('MAP_COUNT', 0))} FIELDS"), col["SWEEP"])
+        log(dots("DATA LINK", "..."), col["DIM"])
         deadline = time.monotonic() + 3
         while _RadarFeed.fetched is None and _RadarFeed.error is None and time.monotonic() < deadline:
-            _Splash._run(0.2, sweep)
+            _Splash._wait(0.1)
         if _RadarFeed.fetched:
-            text(status_bl, f"CONTACT: {len(_RadarFeed.aircraft)} AIRCRAFT", radar.col["SWEEP"])
+            log(dots("DATA LINK", (_RadarFeed.source or "OK").upper()), col["SWEEP"], replace=True)
         else:
-            text(status_bl, "NO DATA YET - CHECK NETWORK", radar.col["EMERGENCY"])
-        _Splash._run(1.2, sweep)
+            log(dots("DATA LINK", "NO ANSWER"), col["EMERGENCY"], replace=True)
+
+        # 5. the contacts appear, nearest first; the dashboard's sweep then takes over the scope as it is
+        now = time.time()
+        radar.sweep_over(now)
+        count = len(radar.memory)
+        batches = min(count, 10)
+        for b in range(1, batches + 1):
+            frame = radar.scope_frame(None, time.time(), None, limit=round(count * b / batches))
+            lcd.DisplayPILImage(frame, radar.box[0], radar.box[1])
+            _Splash._wait(0.05)
+        log(dots("CONTACTS", str(count)), col["SWEEP"] if count else col["DIM"])
+        log("SWEEP ON", col["TEXT"])
+        _Splash._wait(0.6)
+
+
+def _handoff(screen) -> bool:
+    """From the splash straight to the dashboard: the splash knows what the screen shows, so only what differs from
+    the dashboard's background is sent, instead of the app repainting the whole screen (~2 s on a rev A, with
+    nothing moving). The radar keeps its scope as the splash left it and starts sweeping at once."""
+    from PIL import Image
+    from library import config
+    statics = config.THEME_DATA.get("static_images") or {}
+    background = statics.get("BACKGROUND") or {}
+    if list(statics) != ["BACKGROUND"] or background.get("X", 0) or background.get("Y", 0) or screen.shadow is None:
+        return False  # something else to draw: let the app do it
+    target = _Draw.background(background.get("PATH", "background.png")).copy()
+    if target.size != (screen.width, screen.height):
+        return False
+    radar = _Draw.theme("Bc250Radar")
+    if radar.get("SCOPE"):  # the scope stays as the splash left it: the sweep takes it over from there
+        cx, cy, r = (int(v) for v in radar["SCOPE"])
+        keep = (cx - r - 1, cy - r - 1, cx + r + 2, cy + r + 2)
+        target.paste(Image.fromarray(screen.shadow).crop(keep), keep[:2])
+    screen.DisplayPILImage(target, 0, 0)
+    screen.TILE = 10
+    _Draw.screen = screen
+    if radar.get("SCOPE"):
+        Bc250Radar().as_numeric()  # start the sweep now, not when the app's widgets get going (~3 s later)
+    return True
 
 
 def _shared_screen(lcd):
@@ -3432,9 +3471,12 @@ def _install_splash_hook():
     original = type(display).display_static_images
 
     def display_static_images(self):
-        _attempt("boot splash", lambda: _Splash.play(self.lcd))
-        original(self)
-        _attempt("widget screen", lambda: _shared_screen(self.lcd))
+        first = not getattr(type(self), "_bc250_booted", False)
+        type(self)._bc250_booted = True
+        screen = _attempt("boot splash", lambda: _Splash.play(self.lcd)) if first else None
+        if not (screen is not None and _attempt("handoff", lambda: _handoff(screen), False)):
+            original(self)
+            _attempt("widget screen", lambda: _shared_screen(self.lcd))
 
     type(display).display_static_images = display_static_images
     type(display)._bc250_splash = True

@@ -117,11 +117,9 @@ RADAR_LAYOUT = {  # landscape, portrait
                list=(8, 382, 312, 410), list_bl=394, list_rows=2, list_columns=2, count=(258, 12, 90),
                stats=[(8, 428, 34, 150), (164, 428, 190, 312)], prompt_line=(4, 431, 316)),
 }
-RADAR_SPLASH = {
-    False: dict(logo=(314, 46), sub=(314, 62, "ls"), head_bl=86, row_bl=104, row_step=16, label_x=314, value_x=362,
-                status_xr=474, status_bl=230, footer_bl=312, panel_w=160),
-    True: dict(logo=(8, 330), sub=(312, 330, "rs"), head_bl=348, row_bl=364, row_step=14, label_x=8, value_x=56,
-               status_xr=312, status_bl=464, footer_bl=478, panel_w=304),
+RADAR_SPLASH = {  # the boot runs on the dashboard itself: its log takes the flight card and the list
+    False: dict(log=(314, 22, 474, 206), row_bl=0, row_step=0, label_x=314, value_x=362, status_xr=474, status_bl=0),
+    True: dict(log=(8, 310, 312, 410), row_bl=0, row_step=0, label_x=8, value_x=56, status_xr=312, status_bl=0),
 }
 
 
@@ -591,7 +589,12 @@ def build_theme(title, prompt, user):
                        "HORIZON": sl["horizon"], "PANEL": list(sl["panel"]), "GRID_COLOR": rgb(SKIN["mid"]),
                        "GRID_SPACING": W // 8, "FOOTER_BL": sl.get("footer_bl", 0)})
     if SKIN_NAME == "radar":
-        splash.update({"STYLE": "radar", "IMAGE_BLANK": "splash_blank.png", "STATUS_BL": sl["status_bl"]})
+        cx, cy, r = RADAR["scope"]
+        step = nice_step(RADAR["km"])
+        rings = [round(ring * r / RADAR["km"]) for ring in range(step, int(RADAR["km"]) + 1, step)]
+        splash.update({"STYLE": "radar", "IMAGE": "background.png", "LOG": list(sl["log"]),
+                       "RINGS": [v for v in rings if v < r - 3] + [r - 1],
+                       "MAP_COUNT": sum(1 for a in RADAR["map"][0] if a[3] != "small_airport")})
     if SKIN_NAME == "nixie":
         splash.update({"STYLE": "nixie", "NIXIE_FONT": NIXIE_FONT, "TUBE_XS": sl["tube_xs"], "TUBE_Y": sl["tube_y"],
                        "TUBE_W": sl["tube"][0], "TUBE_H": sl["tube"][1], "COLONS": sl["colons"], "LAMPS": sl["lamps"],
@@ -1972,23 +1975,6 @@ def render_background_radar(title):
     return c.finish()
 
 
-def render_splash_radar(title, layer="full"):
-    sl = SPLASH_LAYOUT
-    c = Canvas()
-    c.label(6, HEADER_BL, title, SKIN["value"], glow=False)
-    c.d.line((0, HEADER_H + 1, W, HEADER_H + 1), fill=RD_LINE)
-    draw_scope(c, rings=layer == "full")
-    lx, lb = sl["logo"]
-    c.label(lx, lb, LOGO, SKIN["value"], size=M if len(LOGO) * CH[M] <= sl["panel_w"] else S, glow=False)
-    c.label(sl["sub"][0], sl["sub"][1], SUBTITLE[:sl["panel_w"] // CH[S]], RD_COLOURS["DIM"],
-            anchor=sl["sub"][2], glow=False)
-    c.label(sl["label_x"], sl["head_bl"], "SYSTEM CHECK", RD_COLOURS["LABEL"], glow=False)
-    credit = "ADS-B data: adsb.lol / adsb.fi, routes: adsbdb"
-    c.label(sl["label_x"], sl["footer_bl"], credit if len(credit) * CH[S] <= sl["panel_w"] else "data: adsb.lol / adsb.fi",
-            RD_COLOURS["DIM"], glow=False)
-    return c.finish()
-
-
 def radar_spec():
     rd = RADAR
     spec = {"LAT": round(rd["center"][0], 5), "LON": round(rd["center"][1], 5), "RANGE_KM": rd["km"], "REFRESH": 6,
@@ -2109,8 +2095,8 @@ if __name__ == "__main__":
         render_splash_gameboy(title, prompt, logo=False, menu=False).save(THEME_DIR / "splash_blank.png")
     elif SKIN_NAME == "radar":
         render_background_radar(title).save(THEME_DIR / "background.png")
-        render_splash_radar(title, "full").save(THEME_DIR / "splash.png")
-        render_splash_radar(title, "blank").save(THEME_DIR / "splash_blank.png")
+        for old in ("splash.png", "splash_blank.png"):  # the boot now runs on background.png
+            (THEME_DIR / old).unlink(missing_ok=True)
     elif SKIN_NAME == "nixie":
         nixie_layout(PORTRAIT)  # here: it needs the --alert and power options
         render_background_nixie(title).save(THEME_DIR / "background.png")

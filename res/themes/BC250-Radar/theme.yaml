@@ -5,7 +5,7 @@
 author: BC-250 Steam Machine
 bc250_splash:
   ENABLED: True
-  IMAGE: splash.png
+  IMAGE: background.png
   FONT: fusion-pixel/fusion-pixel-12px-monospaced-zh_hans.otf
   ALERT: 80
   BRIGHT: 200, 255, 210
@@ -14,15 +14,15 @@ bc250_splash:
   AMBER: 230, 255, 120
   ALERT_COLOR: 255, 70, 60
   BG: 2, 9, 4
-  ROW_BL: 104
-  ROW_STEP: 16
+  ROW_BL: 0
+  ROW_STEP: 0
   ROWS: 7
   LABEL_X: 314
   VALUE_X: 362
   STATUS_XR: 474
   VALUE_CHARS: 11
   PROGRESS_BL: 0
-  STATUS_BL: 230
+  STATUS_BL: 0
   BAR_X: 0
   BAR_Y: 0
   BAR_W: 0
@@ -30,7 +30,9 @@ bc250_splash:
   IMAGE_NOLOGO: splash_nologo.png
   LOGO_TEXT: BC-250
   STYLE: radar
-  IMAGE_BLANK: splash_blank.png
+  LOG: [314, 22, 474, 206]
+  RINGS: [30, 59, 89, 118, 147]
+  MAP_COUNT: 8
   LAT: 49.0097
   LON: 2.5479
   RANGE_KM: 50
