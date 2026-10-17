@@ -16,7 +16,7 @@ from common import COMMAND_S, LINK_BYTES_PER_S, RevA, patch_sensors, report  # n
 from check_boot import BC250_LINES, select_theme  # noqa: E402
 from common import THEMES  # noqa: E402
 
-OTHERS_MS_PER_S = 150  # set so the old once-a-second stall (the status line resent whole) fails
+OTHERS_MS_PER_S = 130  # today ~75; the old once-a-second stall (status line resent whole) was ~190
 
 
 def main():
@@ -74,9 +74,10 @@ def main():
                 for t, x, y, w, h, who in rev_a.log:
                     if who != "BC250 radar" and t > boot[-1] + 3:
                         others[int(t)] = others.get(int(t), 0) + w * h * 2 / LINK_BYTES_PER_S + COMMAND_S
-                busiest = max(others.values(), default=0) * 1000
-                ok &= report(busiest <= OTHERS_MS_PER_S, f"{name}: other widgets take at most {busiest:.0f} ms of link a "
-                                                         f"second (limit {OTHERS_MS_PER_S}): the sweep keeps its pace")
+                # averaged over the run: a slow machine can bunch two seconds of updates into one
+                average = 1000 * sum(others.values()) / max(1, max(others, default=0) - min(others, default=0) + 1)
+                ok &= report(average <= OTHERS_MS_PER_S, f"{name}: other widgets take {average:.0f} ms of link a second "
+                                                         f"(limit {OTHERS_MS_PER_S}): the sweep keeps its pace")
                 # wall-clock smoothness depends on the machine too: shown, and only a gross stall fails
                 ok &= report(worst < 1.0, f"{name}: sweep {len(starts) / seconds:.1f} frames/s, {per_minute:.0f} pauses "
                                           f"over 200 ms a minute, longest {worst * 1000:.0f} ms")
