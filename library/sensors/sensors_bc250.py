@@ -100,6 +100,8 @@ def _duration(seconds: Optional[float]) -> str:
 # ---------------------------------------------------------------------------------------------------------------------
 class _Draw:
     enabled = True  # bc250_check.py turns this off: reading sensors there must never talk to the screen
+    screen = None  # the _Screen all widgets draw through, once the app has drawn the theme's background
+    _repainted = {}
     _fonts = {}
     _backgrounds = {}
     _failed = set()
@@ -145,6 +147,14 @@ class _Draw:
 
     @classmethod
     def show(cls, image, box: dict):
+        if cls.screen is not None:  # only the pixels that changed (a blinking cursor: just the cursor)
+            key, now = (box["X"], box["Y"], image.width, image.height), time.monotonic()
+            # ...and once a minute the whole widget, should the screen have lost what it showed
+            full = image.width * image.height <= 20000 and now - cls._repainted.get(key, 0) > 60
+            if full:
+                cls._repainted[key] = now
+            cls.screen.DisplayPILImage(image, box["X"], box["Y"], full=full)
+            return
         from library.display import display
         display.lcd.DisplayPILImage(image, box["X"], box["Y"])
 
@@ -1091,8 +1101,11 @@ class Bc250Radar:
     def _animate(spec: dict):
         from library.display import display
         radar = _Radar(spec, display.lcd, _Draw.background(spec.get("BACKGROUND_IMAGE", "background.png")))
-        import numpy
-        radar.lcd.shadow = numpy.asarray(radar.base).copy()  # the app has just drawn the background
+        if _Draw.screen is not None:
+            radar.lcd = _Draw.screen  # shared with the other widgets: it knows the screen shows the background
+        else:
+            import numpy
+            radar.lcd.shadow = numpy.asarray(radar.base).copy()  # the app has just drawn the background
         frame = 1 / float(spec.get("FPS", 8))
         while True:
             start = time.monotonic()
@@ -1828,7 +1841,9 @@ class Bc250Prompt:
             for i, ((label, value), (xl, xr)) in enumerate(zip(state["cols"], spec["COLS"])):
                 warn = i == len(state["cols"]) - 1 and state.get("alert_col")  # e.g. a stalled shader job
                 d.text((xl - ox, cols_bl), label, font=small, fill=label_c, anchor="ls")
-                d.text((xr - ox, cols_bl), value, font=big, fill=amber if warn else bright, anchor="rs")
+                fits = d.textlength(label, font=small) + d.textlength(value, font=big) + 6 <= xr - xl
+                d.text((xr - ox, cols_bl), value, font=big if fits else small, fill=amber if warn else bright,
+                       anchor="rs")  # a narrow column: the small font rather than over its label
         else:
             # landscape: columns on the value row, laid out from the right edge
             right_edges = [spec["COL2_XR"] - ox, spec["COL1_XR"] - ox]
@@ -1838,10 +1853,29 @@ class Bc250Prompt:
                 d.text((xr, value_bl), value, font=big, fill=amber if warn else bright, anchor="rs")
 
         room = spec["MAX_CHARS"] if len(state["cols"]) > 1 else spec["MAX_CHARS_WIDE"]
-        if len(text) > room:
-            text = text[:room - 1] + "~"
         mark = spec.get("CURSOR", "_")
-        d.text((spec["TEXT_X"] - ox, value_bl), text + (mark if cursor else ""), font=big, fill=bright, anchor="ls")
+        if len(text) > room and spec.get("SMALL_FALLBACK"):
+            # a narrow box: the small font, on two lines if needed, rather than cutting the name
+            per_line = room * 2
+            words, lines = text.split(), [""]
+            for word in words:
+                if len(lines[-1]) + len(word) + (1 if lines[-1] else 0) <= per_line:
+                    lines[-1] += (" " if lines[-1] else "") + word
+                elif len(lines) < 2:
+                    lines.append(word[:per_line])
+                else:
+                    lines[-1] = (lines[-1] + " " + word)[:per_line - 1] + "~"
+                    break
+            lines = [line[:per_line] for line in lines]
+            tops = [value_bl - 11, value_bl] if len(lines) == 2 else [value_bl - 4]
+            for i, (line, bl) in enumerate(zip(lines, tops)):
+                d.text((spec["TEXT_X"] - ox, bl), line + (mark if cursor and i == len(lines) - 1 else ""),
+                       font=small, fill=bright, anchor="ls")
+        else:
+            if len(text) > room:
+                text = text[:room - 1] + "~"
+            d.text((spec["TEXT_X"] - ox, value_bl), text + (mark if cursor else ""), font=big, fill=bright,
+                   anchor="ls")
         _Draw.show(image, area)
 
     def as_numeric(self) -> float:
@@ -2066,6 +2100,8 @@ class _Screen:
     def __init__(self, lcd, width: int, height: int):
         self.lcd, self.width, self.height = lcd, width, height
         self.shadow = None  # what is on the screen (numpy HxWx3) once a full frame has been sent
+        import threading
+        self._lock = threading.Lock()  # the radar's thread and the widgets' thread can share one
         self.sent = 0  # bytes
 
     def SetBrightness(self, level: int):
@@ -2135,7 +2171,11 @@ class _Screen:
         self.lcd.DisplayPILImage(image, x, y)
         self.sent += image.width * image.height * 2
 
-    def DisplayPILImage(self, image, x: int = 0, y: int = 0, *args, **kwargs):
+    def DisplayPILImage(self, image, x: int = 0, y: int = 0, *args, full: bool = False, **kwargs):
+        with self._lock:
+            self._display(image, x, y, full)
+
+    def _display(self, image, x, y, full=False):
         import numpy
         image = image.convert("RGB")
         w, h = min(image.width, self.width - x), min(image.height, self.height - y)
@@ -2157,8 +2197,11 @@ class _Screen:
             self.shadow = new.copy()
             return
         old = self.shadow[y:y + h, x:x + w]
-        for x1, y1, x2, y2 in self._rects((new != old).any(axis=2), self.TILE):
-            self._send(image.crop((x1, y1, x2, y2)), x + x1, y + y1)
+        if full:
+            self._send(image, x, y)
+        else:
+            for x1, y1, x2, y2 in self._rects((new != old).any(axis=2), self.TILE):
+                self._send(image.crop((x1, y1, x2, y2)), x + x1, y + y1)
         old[...] = new
 
 
@@ -3347,6 +3390,19 @@ class _RadarSplash:
         _Splash._run(1.2, sweep)
 
 
+def _shared_screen(lcd):
+    """After the app draws the background: one _Screen for every BC-250 widget, knowing that the screen now shows
+    that background. The app's own widgets draw elsewhere, so what it knows of our areas stays true."""
+    import numpy
+    from library import config
+    background = config.THEME_DATA["static_images"]["BACKGROUND"]
+    image = _Draw.background(background.get("PATH", "background.png"))
+    screen = _Screen(lcd, *image.size)
+    screen.shadow = numpy.asarray(image).copy()
+    screen.TILE = 10
+    _Draw.screen = screen
+
+
 def _serialize_display(lcd):
     """The app queues a bitmap as a command, then its pixel data, under two separate locks: two threads drawing at
     once can interleave them (the radar draws from a thread of its own). One lock around the whole call fixes it."""
@@ -3378,6 +3434,7 @@ def _install_splash_hook():
     def display_static_images(self):
         _attempt("boot splash", lambda: _Splash.play(self.lcd))
         original(self)
+        _attempt("widget screen", lambda: _shared_screen(self.lcd))
 
     type(display).display_static_images = display_static_images
     type(display)._bc250_splash = True

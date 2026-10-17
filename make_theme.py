@@ -338,7 +338,7 @@ def set_layout(portrait: bool, skin: str = "phosphor"):
         if not portrait:
             PROMPT_Y, PROMPT_LABEL_BL, PROMPT_VALUE_BL, PROMPT_COLS_BL = 258, 272, 294, 314
             PROMPT_X, PROMPT_XR, PROMPT_AREA = 314, 474, (312, 260, 166, 60)
-            PROMPT_COLS = [[314, 388], [400, 474]]
+            PROMPT_COLS = [[314, 392], [396, 474]]
         else:
             PROMPT_Y, PROMPT_LABEL_BL, PROMPT_VALUE_BL, PROMPT_COLS_BL = 432, 444, 470, None
             PROMPT_X, PROMPT_XR, PROMPT_AREA, PROMPT_COL1_XR = 8, 312, (4, 434, 312, 46), 236
@@ -501,7 +501,7 @@ NIXIE_WORDS = {"boot": "WARMING UP", "now-playing": "NOW PLAYING", "downloading"
 # Radar status line wording
 RADAR_WORDS = {"boot": "STARTING", "now-playing": "NOW PLAYING", "downloading": "DOWNLOADING", "installing": "INSTALLING",
                "verifying": "VERIFYING", "fossilize_replay": "SHADERS", "last-session": "LAST GAME", "idle": "STANDBY",
-               "idle-text": "watching the sky"}
+               "idle-text": "on watch"}
 
 
 def videotex_code(logo):
@@ -543,7 +543,7 @@ def build_theme(title, prompt, user):
     if SKIN_NAME == "nixie":
         prompt_spec.update({"CMD_WORDS": NIXIE_WORDS, "LABEL_COLOR": rgb(NX_BRASS)})
     if SKIN_NAME == "radar":
-        prompt_spec.update({"CMD_WORDS": RADAR_WORDS, "LABEL_COLOR": rgb(SKIN["mid"]),
+        prompt_spec.update({"CMD_WORDS": RADAR_WORDS, "LABEL_COLOR": rgb(SKIN["mid"]), "SMALL_FALLBACK": True,
                             "COL_WORDS": {"SESSION": "TIME", "PEAK C/G": "PEAK", "SHADERS": "DONE"}})
     if SKIN_NAME == "minecraft":  # white and yellow on the dark chat box
         prompt_spec.update({"CMD_WORDS": dict(MINECRAFT_WORDS, **{"idle-text": f"{user} is AFK"}),

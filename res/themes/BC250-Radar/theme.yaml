@@ -222,14 +222,15 @@ STATS:
         fossilize_replay: SHADERS
         last-session: LAST GAME
         idle: STANDBY
-        idle-text: watching the sky
+        idle-text: on watch
       LABEL_COLOR: 90, 190, 110
+      SMALL_FALLBACK: True
       COL_WORDS:
         SESSION: TIME
         PEAK C/G: PEAK
         SHADERS: DONE
       COLS_BL: 314
-      COLS: [[314, 388], [400, 474]]
+      COLS: [[314, 392], [396, 474]]
       MAX_CHARS: 12
       MAX_CHARS_WIDE: 12
     Bc250Screen:
