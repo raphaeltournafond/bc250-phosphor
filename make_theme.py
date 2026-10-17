@@ -1,6 +1,6 @@
 # BC-250 theme generator for turing-smart-screen-python: renders the artwork and writes theme.yaml of one theme
 # from a single layout, so static art and live widgets always line up.
-#     python3 make_theme.py --app ~/turing-smart-screen-python [--theme phosphor|gameboy|retrowave|videotex|mission|minecraft|nixie] [--portrait] [...]
+#     python3 make_theme.py --app ~/turing-smart-screen-python [--theme phosphor|gameboy|retrowave|videotex|mission|minecraft|nixie|radar] [--portrait] [...]
 #     python3 make_theme.py --help
 # The theme is written to <app>/res/themes/BC250-<Theme> (fonts are read from <app>/res/fonts).
 #
@@ -19,7 +19,10 @@
 
 import argparse
 import math
+import os
 import random
+import re
+import time
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
@@ -44,6 +47,8 @@ DIM_BRIGHTNESS = 5  # % when dimmed
 NIGHT = ""  # e.g. "23:30-08:00": screen off (or dimmed) during these hours unless a game is running
 NIGHT_MODE = "off"  # "off" or "dim"
 SPLASH = True  # boot screen played before the dashboard
+RADAR_LAT, RADAR_LON = 49.0097, 2.5479  # radar theme: centre of the scope (default: Paris CDG airport, a public place)
+RADAR_RANGE = 50  # km
 
 # --- Colours ----------------------------------------------------------------------------------------------------------
 DMG = [(155, 188, 15), (139, 172, 15), (48, 98, 48), (15, 56, 15)]  # Game Boy DMG: lightest .. darkest
@@ -81,6 +86,10 @@ SKINS = {
     "nixie": dict(folder="BC250-Nixie", bg=(10, 9, 8), dim=(120, 95, 58), mid=(190, 150, 85), value=(255, 150, 60),
                   accent=(255, 110, 40), cold=(255, 150, 60), hot=(255, 100, 30), alert=(255, 50, 40), ink=(10, 9, 8),
                   grid_dot=(40, 32, 26), palette=None),
+    # Radar: a dark scope with a turning sweep, aircraft coloured by altitude, white data tags
+    "radar": dict(folder="BC250-Radar", bg=(6, 12, 18), dim=(70, 110, 118), mid=(110, 170, 178), value=(235, 242, 242),
+                  accent=(255, 170, 60), cold=(100, 220, 255), hot=(255, 160, 60), alert=(255, 70, 60), ink=(6, 12, 18),
+                  grid_dot=(24, 62, 70), palette=None),
 }
 SKIN_NAME = "phosphor"
 SKIN = SKINS[SKIN_NAME]
@@ -100,6 +109,22 @@ CLOCK_CHARS = 8  # "HH:mm:ss"
 # ---------------------------------------------------------------------------------------------------------------------
 # Layout: every position lives here
 # ---------------------------------------------------------------------------------------------------------------------
+RADAR_LAYOUT = {  # landscape, portrait
+    False: dict(scope=(158, 168, 148), card=(314, 22, 474, 132), card_rows=[32, 52, 68, 90, 106], card_style="tall",
+                list=(314, 138, 474, 206), list_bl=162, list_rows=4, list_columns=1, count=(416, 12, 90),
+                stats=[(314, 230, 346, 474), (314, 252, 346, 474)], prompt_line=(310, 257, 476)),
+    True: dict(scope=(160, 164, 140), card=(8, 310, 312, 380), card_rows=[30, 50, 66], card_style="wide",
+               list=(8, 382, 312, 410), list_bl=394, list_rows=2, list_columns=2, count=(258, 12, 90),
+               stats=[(8, 428, 34, 150), (164, 428, 190, 312)], prompt_line=(4, 431, 316)),
+}
+RADAR_SPLASH = {
+    False: dict(logo=(314, 46), sub=(314, 62, "ls"), head_bl=86, row_bl=104, row_step=16, label_x=314, value_x=362,
+                status_xr=474, status_bl=230, footer_bl=312, panel_w=160),
+    True: dict(logo=(8, 330), sub=(312, 330, "rs"), head_bl=348, row_bl=364, row_step=14, label_x=8, value_x=56,
+               status_xr=312, status_bl=464, footer_bl=478, panel_w=304),
+}
+
+
 def phosphor_panel(x1, y1, x2, y2, col_a_offset):
     """A CPU/GPU panel of the phosphor theme: LOAD (big) | TEMP | CLK on one row, bar, chart."""
     x0, xr = x1 + 10, x2 - 10
@@ -177,11 +202,10 @@ def cell(x0, y0, width):
 def set_layout(portrait: bool, skin: str = "phosphor"):
     global PORTRAIT, SKIN_NAME, SKIN, W, H, CLOCK_XR, DATE_XR, cpu, gpu, GRID, GRID_COLS, CELL_W, CELL_GAP, cells
     global PROMPT_Y, PROMPT_LABEL_BL, PROMPT_VALUE_BL, PROMPT_COLS_BL, PROMPT_X, PROMPT_XR, PROMPT_AREA
-    global PROMPT_COL1_XR, PROMPT_COLS, SPLASH_LAYOUT
+    global PROMPT_COL1_XR, PROMPT_COLS, SPLASH_LAYOUT, RADAR
     PORTRAIT, SKIN_NAME, SKIN = portrait, skin, SKINS[skin]
-    gameboy, retro, videotex, mission, blocky, nixie = (skin == name for name in
-                                                        ("gameboy", "retrowave", "videotex", "mission", "minecraft",
-                                                         "nixie"))
+    gameboy, retro, videotex, mission, blocky, nixie, radar = (skin == name for name in (
+        "gameboy", "retrowave", "videotex", "mission", "minecraft", "nixie", "radar"))
     card = gameboy_card if gameboy else (lambda *box: phosphor_panel(*box, col_a_offset=130 if portrait else 100))
     if not portrait:  # 480x320: CPU and GPU side by side, 3x2 grid, one-line prompt
         W, H = 480, 320
@@ -308,6 +332,18 @@ def set_layout(portrait: bool, skin: str = "phosphor"):
     # portrait: values on their own row, in two half-width columns (small label left, value right)
     half = (PROMPT_XR - PROMPT_X - CELL_GAP) // 2
     PROMPT_COLS = [[PROMPT_X, PROMPT_X + half], [PROMPT_XR - half, PROMPT_XR]] if portrait else None
+    if radar:  # scope on the left (top in portrait), the flight card, list, CPU/GPU and prompt beside (below) it
+        RADAR.update(RADAR_LAYOUT[portrait])
+        DATE_XR = None
+        if not portrait:
+            PROMPT_Y, PROMPT_LABEL_BL, PROMPT_VALUE_BL, PROMPT_COLS_BL = 258, 272, 294, 314
+            PROMPT_X, PROMPT_XR, PROMPT_AREA = 314, 474, (312, 260, 166, 60)
+            PROMPT_COLS = [[314, 388], [400, 474]]
+        else:
+            PROMPT_Y, PROMPT_LABEL_BL, PROMPT_VALUE_BL, PROMPT_COLS_BL = 432, 444, 470, None
+            PROMPT_X, PROMPT_XR, PROMPT_AREA, PROMPT_COL1_XR = 8, 312, (4, 434, 312, 46), 236
+            PROMPT_COLS = None
+        SPLASH_LAYOUT = dict(RADAR_SPLASH[portrait], progress_bl=0, bar=(0, 0, 0, 0))
     SPLASH_LAYOUT.setdefault("logo_max_w", 256)  # leaves room in the logo box for the 3D sway and perspective
     SPLASH_LAYOUT["value_chars"] = (SPLASH_LAYOUT["status_xr"] - 6 * CH[S] - 8 - SPLASH_LAYOUT["value_x"]) // CH[S]
     if mission:  # the status is a lamp, wider than a word
@@ -462,6 +498,12 @@ NIXIE_WORDS = {"boot": "WARMING UP", "now-playing": "NOW PLAYING", "downloading"
                "last-session": "LAST GAME", "idle": "STANDBY", "idle-text": "170 V standing by"}
 
 
+# Radar status line wording
+RADAR_WORDS = {"boot": "STARTING", "now-playing": "NOW PLAYING", "downloading": "DOWNLOADING", "installing": "INSTALLING",
+               "verifying": "VERIFYING", "fossilize_replay": "SHADERS", "last-session": "LAST GAME", "idle": "STANDBY",
+               "idle-text": "watching the sky"}
+
+
 def videotex_code(logo):
     """The service code of the boot screen: 3615 + the logo's letters and digits."""
     return "3615 " + ("".join(ch for ch in logo.upper() if ch.isalnum())[:12] or "BC250")
@@ -470,7 +512,7 @@ def videotex_code(logo):
 def prompt_prefix(user, prompt):
     """What precedes the live command word in the prompt's label row."""
     return {"gameboy": user.upper(), "retrowave": f"1UP {user.upper()}", "videotex": "", "mission": "",
-            "minecraft": "", "nixie": ""}.get(SKIN_NAME, prompt)
+            "minecraft": "", "nixie": "", "radar": ""}.get(SKIN_NAME, prompt)
 
 
 def build_theme(title, prompt, user):
@@ -500,6 +542,9 @@ def build_theme(title, prompt, user):
         prompt_spec.update({"CMD_WORDS": RETRO_WORDS, "LABEL_COLOR": rgb(SKIN["accent"])})
     if SKIN_NAME == "nixie":
         prompt_spec.update({"CMD_WORDS": NIXIE_WORDS, "LABEL_COLOR": rgb(NX_BRASS)})
+    if SKIN_NAME == "radar":
+        prompt_spec.update({"CMD_WORDS": RADAR_WORDS, "LABEL_COLOR": rgb(SKIN["mid"]),
+                            "COL_WORDS": {"SESSION": "TIME", "PEAK C/G": "PEAK", "SHADERS": "DONE"}})
     if SKIN_NAME == "minecraft":  # white and yellow on the dark chat box
         prompt_spec.update({"CMD_WORDS": dict(MINECRAFT_WORDS, **{"idle-text": f"{user} is AFK"}),
                             "BRIGHT": rgb((255, 255, 255)), "LABEL_COLOR": rgb((255, 255, 85)),
@@ -531,7 +576,7 @@ def build_theme(title, prompt, user):
         "BAR_Y": sl["bar"][1], "BAR_W": sl["bar"][2], "BAR_H": sl["bar"][3],
         "IMAGE_NOLOGO": "splash_nologo.png", "LOGO_TEXT": LOGO,
     }
-    if SKIN_NAME not in ("retrowave", "videotex", "mission", "minecraft", "nixie"):  # the pixel-font logo
+    if SKIN_NAME not in ("retrowave", "videotex", "mission", "minecraft", "nixie", "radar"):  # pixel-font logo
         splash.update({"LOGO_SIZE": logo_size(LOGO), "LOGO_BL": logo_baseline(logo_size(LOGO)),
                        "LOGO_BOX": list(sl["logo_box"])})
     if SKIN_NAME == "phosphor":  # the dark tube the warm-up starts from: only the text has to be sent after it
@@ -545,6 +590,8 @@ def build_theme(title, prompt, user):
                        "LOGO_BOX": list(logo["face_box"]), "REVEAL_BOX": list(RETRO_REVEAL_BOX),
                        "HORIZON": sl["horizon"], "PANEL": list(sl["panel"]), "GRID_COLOR": rgb(SKIN["mid"]),
                        "GRID_SPACING": W // 8, "FOOTER_BL": sl.get("footer_bl", 0)})
+    if SKIN_NAME == "radar":
+        splash.update({"STYLE": "radar", "IMAGE_BLANK": "splash_blank.png", "STATUS_BL": sl["status_bl"]})
     if SKIN_NAME == "nixie":
         splash.update({"STYLE": "nixie", "NIXIE_FONT": NIXIE_FONT, "TUBE_XS": sl["tube_xs"], "TUBE_Y": sl["tube_y"],
                        "TUBE_W": sl["tube"][0], "TUBE_H": sl["tube"][1], "COLONS": sl["colons"], "LAMPS": sl["lamps"],
@@ -636,6 +683,8 @@ def build_theme(title, prompt, user):
         theme = {k: theme[k] for k in ("author", "bc250_palette", "bc250_splash", "display", "static_images", "STATS")}
     if SKIN_NAME == "nixie":
         theme = nixie_theme(theme, title)
+    if SKIN_NAME == "radar":
+        theme = radar_theme(theme)
     return theme
 
 
@@ -737,7 +786,7 @@ class Canvas:
     def finish(self):
         if SKIN_NAME == "gameboy":
             return self.lcd_grid(self.img)
-        if SKIN_NAME in ("videotex", "minecraft", "nixie"):  # flat colours, nothing else
+        if SKIN_NAME in ("videotex", "minecraft", "nixie", "radar"):  # flat colours, nothing else
             return self.img
         if SKIN_NAME == "mission":  # soft glow of the text, scanlines on the CRT glass only
             img = ImageChops.add(self.img, self.glow.filter(ImageFilter.GaussianBlur(3)).point(lambda v: int(v * 0.45)))
@@ -1713,6 +1762,182 @@ def nixie_theme(theme, title):
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+# Radar artwork, map and theme
+# ---------------------------------------------------------------------------------------------------------------------
+RADAR = {}  # set by set_layout()
+RD_DISC, RD_RIM, RD_RING, RD_TICK = (4, 20, 26), (46, 100, 110), (24, 62, 70), (60, 120, 130)
+RD_COLOURS = dict(SWEEP=(120, 255, 210), LOW=(255, 160, 60), MID=(240, 220, 90), HIGH=(100, 220, 255),
+                  EMERGENCY=(255, 70, 60), TEXT=(235, 242, 242), LABEL=(110, 170, 178), DIM=(70, 110, 118),
+                  ROUTE=(255, 190, 90))
+OURAIRPORTS = "https://davidmegginson.github.io/ourairports-data/{}.csv"
+
+
+def parse_coordinate(text):
+    """48.86 or 48°51'30"N style: decimal degrees (S and W negative)."""
+    text = text.strip().upper()
+    match = re.match(r"^([\d.]+)\s*[°D]\s*(?:([\d.]+)\s*['M′])?\s*(?:([\d.]+)\s*(?:\"|''|S|″)?)?\s*([NSEW])?$", text)
+    if match and ("°" in text or "D" in text):
+        degrees = float(match.group(1)) + float(match.group(2) or 0) / 60 + float(match.group(3) or 0) / 3600
+        return -degrees if match.group(4) in ("S", "W") else degrees
+    return float(text)
+
+
+def radar_map(lat, lon, km):
+    """Airports (large and medium with their runways, small ones as dots) within range, from OurAirports (public
+    domain), downloaded once into ~/.cache/bc250-themes. Without network the scope just has no map."""
+    import csv
+    import urllib.request
+    cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "bc250-themes"
+    kx, ky = 111.32 * math.cos(math.radians(lat)), 110.57
+    tables = {}
+    for name in ("airports", "runways"):
+        path = cache / f"{name}.csv"
+        try:
+            if not path.is_file() or time.time() - path.stat().st_mtime > 90 * 86400:
+                cache.mkdir(parents=True, exist_ok=True)
+                print(f"Downloading OurAirports {name} (once, for the radar map)...")
+                request = urllib.request.Request(OURAIRPORTS.format(name), headers={"User-Agent": "bc250-themes"})
+                with urllib.request.urlopen(request, timeout=60) as answer:
+                    path.write_bytes(answer.read())
+            with open(path, encoding="utf-8") as f:
+                tables[name] = list(csv.DictReader(f))
+        except Exception as e:
+            print(f"note: no radar map ({name}: {e})")
+            return [], []
+    near = lambda la, lo: ((float(lo) - lon) * kx, (float(la) - lat) * ky)
+    airports, runways, shown = [], [], {}
+    for a in tables["airports"]:
+        if a["type"] not in ("large_airport", "medium_airport", "small_airport"):
+            continue
+        try:
+            x, y = near(a["latitude_deg"], a["longitude_deg"])
+        except ValueError:
+            continue
+        if math.hypot(x, y) <= km:
+            label = a["iata_code"] or a["ident"]
+            airports.append((x, y, label, a["type"]))
+            shown[a["ident"]] = a["type"]
+    for r in tables["runways"]:
+        if shown.get(r["airport_ident"]) not in ("large_airport", "medium_airport") or r["closed"] == "1":
+            continue
+        try:
+            runways.append((near(r["le_latitude_deg"], r["le_longitude_deg"]), near(r["he_latitude_deg"], r["he_longitude_deg"])))
+        except ValueError:
+            continue
+    return airports, runways
+
+
+def nice_step(km):
+    return next(s for s in (1, 2, 5, 10, 20, 25, 50, 100, 200) if km / s <= 5)
+
+
+def draw_scope(c, rings=True):
+    cx, cy, r = RADAR["scope"]
+    c.d.ellipse((cx - r - 3, cy - r - 3, cx + r + 3, cy + r + 3), fill=(10, 30, 36))
+    c.d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=RD_DISC, outline=RD_RIM, width=2)
+    if not rings:
+        return
+    km, (lat, lon) = RADAR["km"], RADAR["center"]
+    k = r / km
+    step = nice_step(km)
+    for ring in range(step, int(km) + 1, step):
+        rr = ring * k
+        if rr < r - 3:
+            c.d.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), outline=RD_RING)
+            a = math.radians(135)
+            c.label(round(cx + rr * math.sin(a)) + 2, round(cy - rr * math.cos(a)) - 2, str(ring), RD_RING, glow=False)
+    for deg in range(0, 360, 10):
+        a = math.radians(deg)
+        inner = r - (7 if deg % 30 == 0 else 3)
+        c.d.line((cx + inner * math.sin(a), cy - inner * math.cos(a), cx + (r - 1) * math.sin(a), cy - (r - 1) * math.cos(a)),
+                 fill=RD_TICK)
+    for deg, letter in ((0, "N"), (90, "E"), (180, "S"), (270, "W")):
+        a = math.radians(deg)
+        c.label(round(cx + (r - 15) * math.sin(a)), round(cy - (r - 15) * math.cos(a)) + 4, letter, RD_TICK,
+                anchor="ms", glow=False)
+    airports, runways = RADAR["map"]
+    for (x1, y1), (x2, y2) in runways:
+        c.d.line((cx + x1 * k, cy - y1 * k, cx + x2 * k, cy - y2 * k), fill=(150, 165, 170), width=2)
+    for x, y, label, kind in airports:
+        px, py = cx + x * k, cy - y * k
+        if kind == "small_airport":
+            c.d.point((px, py), fill=RD_TICK)
+        else:
+            c.label(round(px) + 6, round(py) + 12, label, (90, 130, 138), glow=False)
+    c.d.line((cx - 4, cy, cx + 4, cy), fill=RD_TICK)  # the radar's position
+    c.d.line((cx, cy - 4, cx, cy + 4), fill=RD_TICK)
+
+
+def render_background_radar(title):
+    c = Canvas()
+    c.label(6, HEADER_BL, title, SKIN["value"], glow=False)
+    c.d.line((0, HEADER_H + 1, W, HEADER_H + 1), fill=(20, 44, 50))
+    draw_scope(c)
+    rd = RADAR
+    lx1, ly1, lx2, ly2 = rd["list"]
+    if rd["list_columns"] == 1:  # (portrait has no room for the heading)
+        c.label(lx1, ly1 + 10, "NEXT", RD_COLOURS["DIM"], glow=False)
+    c.d.line((rd["card"][0], rd["card"][3] + 2, rd["card"][2], rd["card"][3] + 2), fill=(20, 44, 50))
+    for label, (x, bl, _, _) in zip(("CPU", "GPU"), rd["stats"]):
+        c.label(x, bl, label, RD_COLOURS["DIM"], glow=False)
+    c.d.line((rd["prompt_line"][0], rd["prompt_line"][1], rd["prompt_line"][2], rd["prompt_line"][1]), fill=(20, 44, 50))
+    return c.finish()
+
+
+def render_splash_radar(title, layer="full"):
+    sl = SPLASH_LAYOUT
+    c = Canvas()
+    c.label(6, HEADER_BL, title, SKIN["value"], glow=False)
+    c.d.line((0, HEADER_H + 1, W, HEADER_H + 1), fill=(20, 44, 50))
+    draw_scope(c, rings=layer == "full")
+    lx, lb = sl["logo"]
+    c.label(lx, lb, LOGO, SKIN["value"], size=M if len(LOGO) * CH[M] <= sl["panel_w"] else S, glow=False)
+    c.label(sl["sub"][0], sl["sub"][1], SUBTITLE[:sl["panel_w"] // CH[S]], RD_COLOURS["DIM"],
+            anchor=sl["sub"][2], glow=False)
+    c.label(sl["label_x"], sl["head_bl"], "SYSTEM CHECK", RD_COLOURS["LABEL"], glow=False)
+    credit = "ADS-B data: adsb.lol / adsb.fi, routes: adsbdb"
+    c.label(sl["label_x"], sl["footer_bl"], credit if len(credit) * CH[S] <= sl["panel_w"] else "data: adsb.lol / adsb.fi",
+            RD_COLOURS["DIM"], glow=False)
+    return c.finish()
+
+
+def radar_spec():
+    rd = RADAR
+    spec = {"LAT": round(rd["center"][0], 5), "LON": round(rd["center"][1], 5), "RANGE_KM": rd["km"], "REFRESH": 6,
+            "PERIOD": 4, "FPS": 8, "TAGS": 8, "FONT": FONT, "SCOPE": list(rd["scope"]), "CARD": list(rd["card"]),
+            "CARD_ROWS": rd["card_rows"], "CARD_STYLE": rd["card_style"], "LIST": list(rd["list"]),
+            "LIST_BL": rd["list_bl"], "LIST_STEP": 14, "LIST_ROWS": rd["list_rows"], "LIST_COLUMNS": rd["list_columns"],
+            "COUNT": list(rd["count"]), "BACKGROUND_IMAGE": "background.png"}
+    spec["COLORS"] = {k: rgb(v) for k, v in RD_COLOURS.items()}  # not at the top: the app reads a TEXT key as a widget
+    return spec
+
+
+def radar_theme(theme):
+    """The radar widget draws the scope and the flight panel; the app keeps the clock, the CPU/GPU readings, the
+    prompt and the screen power."""
+    rd, custom = RADAR, theme["STATS"]["CUSTOM"]
+    (cpu_x, cpu_bl, cpu_temp_x, cpu_load_xr), (gpu_x, gpu_bl, gpu_temp_x, gpu_load_xr) = rd["stats"]
+    heat = lambda x, bl: dict(heat_colors(TEMP_COLD, TEMP_HOT, TEMP_ALERT), INK=rgb(SKIN["ink"]),
+                              HEAT_TEXT=text(x, bl, M, 5))
+    theme["STATS"] = {
+        "CPU": {"PERCENTAGE": {"INTERVAL": 1, "TEXT": text(cpu_load_xr, cpu_bl, M, 4, right=True)}},
+        "DATE": {"INTERVAL": 1, "HOUR": {"TEXT": text(CLOCK_XR, HEADER_BL, S, CLOCK_CHARS, SKIN["value"], right=True,
+                                                      FORMAT="HH:mm:ss")}},
+        "CUSTOM": {
+            "INTERVAL": 1,
+            "Bc250CpuTemp": heat(cpu_temp_x, cpu_bl),
+            "Bc250GpuTemp": heat(gpu_temp_x, gpu_bl),
+            "Bc250GpuLoad": {"TEXT": text(gpu_load_xr, gpu_bl, M, 4, right=True)},
+            "Bc250Radar": radar_spec(),
+            "Bc250Prompt": custom["Bc250Prompt"],
+            "Bc250Screen": custom["Bc250Screen"],
+        },
+    }
+    theme["bc250_splash"].update({k: v for k, v in radar_spec().items() if k != "BACKGROUND_IMAGE"})
+    return theme
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate a BC-250 theme for turing-smart-screen-python")
     parser.add_argument("--app", required=True, help="turing-smart-screen-python folder (fonts are read, theme written)")
@@ -1737,6 +1962,11 @@ if __name__ == "__main__":
     parser.add_argument("--night", default=NIGHT,
                         help='hours when the screen sleeps unless a game runs, e.g. "23:30-08:00" (default: off)')
     parser.add_argument("--no-splash", action="store_true", help="skip the boot screen")
+    parser.add_argument("--radar-lat", default=str(RADAR_LAT),
+                        help='radar theme: latitude of the centre, 48.86 or 48°51\'30"N (default: Paris CDG)')
+    parser.add_argument("--radar-lon", default=str(RADAR_LON),
+                        help="radar theme: longitude of the centre, 2.29 or 2°17'40\"E (default: Paris CDG)")
+    parser.add_argument("--radar-range", type=float, default=RADAR_RANGE, help="radar theme: range in km (default: %(default)s)")
     parser.add_argument("--night-mode", choices=("off", "dim"), default=NIGHT_MODE,
                         help="turn the screen off or just dim it at night (default: %(default)s)")
     args = parser.parse_args()
@@ -1771,7 +2001,15 @@ if __name__ == "__main__":
     POWER_LOW, POWER_HIGH = args.pwr_low, args.pwr_high
     DIM_AFTER, DIM_BRIGHTNESS, NIGHT, NIGHT_MODE = args.dim_after, args.dim_brightness, args.night, args.night_mode
 
-    title = (args.title or {"videotex": f"P250 {LOGO}", "mission": f"MCC {LOGO}"}.get(SKIN_NAME)
+    if SKIN_NAME == "radar":
+        try:
+            center = (parse_coordinate(args.radar_lat), parse_coordinate(args.radar_lon))
+        except ValueError:
+            parser.error("--radar-lat / --radar-lon: use decimal degrees, e.g. 48.86 and 2.29")
+        if not (-90 <= center[0] <= 90 and -180 <= center[1] <= 180) or not 5 <= args.radar_range <= 400:
+            parser.error("radar: latitude -90..90, longitude -180..180, range 5..400 km")
+        RADAR.update(center=center, km=args.radar_range, map=radar_map(*center, args.radar_range))
+    title = (args.title or {"videotex": f"P250 {LOGO}", "mission": f"MCC {LOGO}", "radar": f"{LOGO} RADAR"}.get(SKIN_NAME)
              or f"{LOGO}::{args.user.upper()}")[:28]
     prompt = f"{args.user}@{args.host}:~$"[:40]
 
@@ -1780,6 +2018,10 @@ if __name__ == "__main__":
         render_splash_gameboy(title, prompt).save(THEME_DIR / "splash.png")
         render_splash_gameboy(title, prompt, logo=False).save(THEME_DIR / "splash_nologo.png")
         render_splash_gameboy(title, prompt, logo=False, menu=False).save(THEME_DIR / "splash_blank.png")
+    elif SKIN_NAME == "radar":
+        render_background_radar(title).save(THEME_DIR / "background.png")
+        render_splash_radar(title, "full").save(THEME_DIR / "splash.png")
+        render_splash_radar(title, "blank").save(THEME_DIR / "splash_blank.png")
     elif SKIN_NAME == "nixie":
         nixie_layout(PORTRAIT)  # here: it needs the --alert and power options
         render_background_nixie(title).save(THEME_DIR / "background.png")
@@ -1812,7 +2054,8 @@ if __name__ == "__main__":
              "videotex": "BC250-Videotex - 40-column, 8-colour videotex pages",
              "mission": "BC250-Mission - 1969 mission control console",
              "minecraft": "BC250-Minecraft - blocky inventory screen (fan theme, not affiliated with Mojang)",
-             "nixie": "BC250-Nixie - Nixie tube instrument panel"}
+             "nixie": "BC250-Nixie - Nixie tube instrument panel",
+             "radar": "BC250-Radar - live aircraft around a point (free community ADS-B data)"}
     header = (f"# {names[SKIN_NAME]} for an AMD BC-250 Steam Machine\n"
               f"# Turing 3.5\" {'portrait' if PORTRAIT else 'landscape'}. GENERATED by make_theme.py: "
               "edit the script or its options and re-run it.\n"

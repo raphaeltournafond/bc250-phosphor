@@ -115,6 +115,18 @@ def mangohud_diagnosis(game_running: bool):
                 print(hint + "  file has no_display: fine for logging, the HUD just stays hidden.")
 
 
+def _radar_spec():
+    """The radar settings of the selected theme, or None when it isn't the radar theme."""
+    try:
+        import yaml
+        with open("config.yaml", encoding="utf-8") as f:
+            theme = yaml.safe_load(f)["config"]["THEME"]
+        with open(os.path.join("res", "themes", theme, "theme.yaml"), encoding="utf-8") as f:
+            return yaml.safe_load(f)["STATS"]["CUSTOM"].get("Bc250Radar")
+    except Exception:
+        return None
+
+
 def main():
     print("\nBC250-Phosphor check\n" + "-" * 60)
     report(OK, "Python", sys.version.split()[0])
@@ -235,6 +247,18 @@ def main():
     report(OK if candidates else WARN, "Network interfaces up", ", ".join(candidates) or "none")
     if candidates:
         print(f"        -> in config.yaml set:  ETH: \"{candidates[0]}\"   (the theme reads the ETH slot, wifi works too)")
+
+    # --- Radar theme: can the flight data be fetched? ---
+    radar = _radar_spec()
+    if radar:
+        lat, lon, km = float(radar["LAT"]), float(radar["LON"]), float(radar["RANGE_KM"])
+        for name, url in b._RadarFeed.SOURCES:
+            try:
+                raw = b._RadarFeed._get(url.format(lat=lat, lon=lon, nm=km / 1.852 + 1))
+                report(OK, f"Radar data ({name})", f"{len(b._RadarFeed._parse(raw, lat, lon))} aircraft within {km:.0f} km")
+                break
+            except Exception as e:
+                report(WARN, f"Radar data ({name})", f"no answer ({e}); the radar tries the next source")
 
     # --- Screen serial port + permissions ---
     ports = glob.glob("/dev/ttyACM*") + glob.glob("/dev/ttyUSB*")
