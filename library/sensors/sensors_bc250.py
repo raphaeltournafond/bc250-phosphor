@@ -124,7 +124,8 @@ class _Draw:
         from PIL import ImageFont
         key = (name, size)
         if key not in cls._fonts:
-            cls._fonts[key] = ImageFont.truetype(str(REPO_DIR / "res" / "fonts" / name), size)
+            cls._fonts[key] = ImageFont.truetype(str(REPO_DIR / "res" / "fonts" / name), size,
+                                                 layout_engine=ImageFont.Layout.BASIC)  # same text on every machine
         return cls._fonts[key]
 
     @classmethod

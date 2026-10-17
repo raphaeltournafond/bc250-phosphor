@@ -13,6 +13,7 @@ from common import REPO, THEMES, report  # noqa: E402
 import yaml  # noqa: E402
 from PIL import Image, ImageChops  # noqa: E402
 
+ANTIALIAS_LEVELS = 8
 GENERATED_ONLY = ("preview.png", "preview_portrait.png", "splash_preview.gif", "splash_preview_portrait.gif")
 
 
@@ -100,7 +101,8 @@ def main(themes):
                     ok &= report(f1.read() == f2.read(), f"{theme}: {name} matches the committed one")
             elif name.endswith(".png"):
                 changed, worst = same_picture(os.path.join(folder, name), os.path.join(committed, name))
-                ok &= report(changed == 0, f"{theme}: {name} matches the committed one"
+                # font rasterisers differ slightly between Pillow builds: a few levels of antialiasing are tolerated
+                ok &= report(worst <= ANTIALIAS_LEVELS, f"{theme}: {name} matches the committed one"
                              + (f" ({changed} pixels differ, by up to {worst})" if changed else ""))
         for name in sorted(set(os.listdir(folder)) - set(os.listdir(committed))):
             ok &= report(False, f"{theme}: generates {name}, which isn't committed in res/themes/{THEMES[theme]}")

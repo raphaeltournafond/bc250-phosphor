@@ -695,11 +695,13 @@ def build_theme(title, prompt, user):
 # Drawing
 # ---------------------------------------------------------------------------------------------------------------------
 def font(size):
-    return ImageFont.truetype(str(FONTS_DIR / FONT), size)
+    return font_file(FONT, size)
 
 
 def font_file(name, size):
-    return ImageFont.truetype(str(FONTS_DIR / name), size)
+    # the basic layout engine everywhere: with libraqm (Linux) kerning would change text widths, so the themes
+    # would come out differently than on a machine without it
+    return ImageFont.truetype(str(FONTS_DIR / name), size, layout_engine=ImageFont.Layout.BASIC)
 
 
 def mix(a, b, t):
