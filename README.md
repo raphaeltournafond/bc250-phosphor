@@ -1,5 +1,7 @@
 # BC250 themes
 
+[![tests](https://github.com/raphaeltournafond/bc250-themes/actions/workflows/tests.yml/badge.svg)](https://github.com/raphaeltournafond/bc250-themes/actions/workflows/tests.yml)
+
 Eight themes for [turing-smart-screen-python](https://github.com/mathoudebine/turing-smart-screen-python), made for a **3.5" Turing screen** (landscape or portrait) on an **AMD BC-250 Steam Machine running Bazzite**. Seven of them show the same live data, and the radar trades some of it for live flights around a point you choose. Pick one with `--theme`.
 
 **Phosphor** (default): a retro green-phosphor terminal, with a CRT warm-up and a 3D logo at boot.
@@ -156,3 +158,25 @@ Why the custom sensors:
 
   Valve doesn't document these log formats, so a Steam update could change them. If that happens the line just stops showing; nothing crashes.
 - **Old app versions:** every live text has a fixed-size box, so values that get shorter leave nothing behind, even on app versions older than its July 2026 anti-ghosting fix.
+
+## Development
+
+Every change is checked by `tests/run.py`, on GitHub at each push and locally with any Python that has the app's libraries:
+
+```bash
+pip install -r tests/requirements.txt
+python tests/run.py            # everything, about 10 minutes
+python tests/run.py --quick    # landscape only, about 3 minutes
+python tests/run.py radar      # one theme
+```
+
+It fetches turing-smart-screen-python 3.10.0 into `tests/.cache` and runs it on its simulated display (never a real screen), against a fake BC-250 playing a game. The screen is emulated like a 3.5" rev A, which receives about 160 KB/s with ~1.5 ms per command, so anything that would stutter or overrun on the real screen shows up here.
+
+| Check | What it guarantees |
+|---|---|
+| `check_generator.py` | the committed theme files are exactly what `make_theme.py` generates; no two live areas of a layout overlap |
+| `check_states.py` | game detection, play sessions, Steam downloads and the status line, step by step |
+| `check_boot.py` | each boot animation is pixel-exact on the screen, short enough, and hands over cleanly to the dashboard |
+| `check_app.py` | the whole app: the screen shows what every widget meant to draw, with one full-screen transfer only, and the radar's sweep never stalls |
+
+After changing a theme, `python tools/make_previews.py THEME` regenerates its committed files and the README previews (recorded on the same emulated screen, so the GIFs play at the real speed). The radar's tests use saved data around Paris CDG (`tests/fixtures`), never the network.

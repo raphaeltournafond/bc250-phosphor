@@ -112,10 +112,10 @@ CLOCK_CHARS = 8  # "HH:mm:ss"
 RADAR_LAYOUT = {  # landscape, portrait
     False: dict(scope=(158, 168, 148), card=(314, 22, 474, 132), card_rows=[32, 52, 68, 90, 106], card_style="tall",
                 list=(314, 138, 474, 206), list_bl=162, list_rows=4, list_columns=1, count=(416, 12, 90),
-                stats=[(314, 230, 346, 474), (314, 252, 346, 474)], prompt_line=(310, 257, 476)),
+                stats=[(314, 228, 346, 474), (314, 252, 346, 474)], prompt_line=(310, 257, 476)),
     True: dict(scope=(160, 164, 140), card=(8, 310, 312, 380), card_rows=[30, 50, 66], card_style="wide",
                list=(8, 382, 312, 410), list_bl=394, list_rows=2, list_columns=2, count=(258, 12, 90),
-               stats=[(8, 428, 34, 150), (164, 428, 190, 312)], prompt_line=(4, 431, 316)),
+               stats=[(8, 430, 34, 150), (164, 430, 190, 312)], prompt_line=(4, 431, 316)),
 }
 RADAR_SPLASH = {  # the boot runs on the dashboard itself: its log takes the flight card and the list
     False: dict(log=(314, 22, 474, 206), row_bl=0, row_step=0, label_x=314, value_x=362, status_xr=474, status_bl=0),

@@ -1,0 +1,131 @@
+id,ident,type,name,latitude_deg,longitude_deg,elevation_ft,continent,iso_country,iso_region,municipality,scheduled_service,icao_code,iata_code,gps_code,local_code,home_link,wikipedia_link,keywords
+43400,FR-0060,heliport,Victor Jousselin Hospital Heliport,48.727484,1.384667,451,EU,FR,FR-CVL,"Dreux, Yvelines",no,,,,,,,
+43411,FR-0071,closed,Hôtel Florotel Heliport,48.725897,3.834196,341,EU,FR,FR-GES,"Linthes, Marne",no,,,,,,,
+43412,FR-0072,heliport,Hostellerie Briqueterie Heliport,49.00763,3.90595,328,EU,FR,FR-GES,"Vinay, Marne",no,,,,,,,
+43419,FR-0079,heliport,François Quesnay Hospital Heliport,48.999036,1.674934,92,EU,FR,FR-IDF,"Mantes-la-Jolie, Yvelines",no,,,,,,,Centre Hospitalier François Quesnay
+43420,FR-0080,heliport,Poissy Hospital Heliport,48.917589,2.022976,233,EU,FR,FR-IDF,"Poissy, Yvelines",no,,,,,,,
+43421,FR-0081,closed,Gilles de Corbeil Hospital Heliport,48.595482,2.481174,255,EU,FR,FR-IDF,"Corbeil-Essonnes, Essonne",no,,,,,,,
+43422,FR-0082,heliport,Henri Mondor University Hospital Heliport,48.798751,2.453492,160,EU,FR,FR-IDF,"Créteil, Val-de-Marne",no,,,,,,,
+43423,FR-0083,heliport,Robert Ballanger Intercommunal Hospital Heliport,48.95461,2.521094,190,EU,FR,FR-IDF,"Aulnay-sous-Bois, Seine-Saint-Denis",no,,,,,,,Centre Hospitalier Intercommunal Robert Ballanger Heliport
+43424,FR-0084,heliport,La Pitié Salpétrière Hospital Heliport,48.837142,2.361358,255,EU,FR,FR-IDF,Paris,no,,,,,,,"Centre Hospitalier La Pitié Salpétrière Heliport, 5th arrondissement"
+43425,FR-0085,heliport,Lariboisière Hospital Heliport,48.88262,2.354472,262,EU,FR,FR-IDF,Paris,no,,,,,,,"Centre Hospitalier Lariboisière Heliport, 10th arrondissement"
+43426,FR-0086,heliport,René Dubos Hospital Heliport,49.066825,2.096429,266,EU,FR,FR-IDF,"Pontoise, Val-d'Oise",no,,,,,,,Centre Hospitalier René Dubos Heliport
+43427,FR-0087,heliport,Flins Heliport,48.97903,1.84782,82,EU,FR,FR-IDF,"Flins-sur-Seine, Yvelines",no,,,,,,,
+43428,FR-0088,heliport,Percy Army Training Hospital Heliport,48.814283,2.253921,333,EU,FR,FR-IDF,"Clamart, Hauts-de-Seine",no,,,,,,,
+43429,FR-0089,heliport,Raymond Poincaré Hospital Heliport,48.83933,2.170367,446,EU,FR,FR-IDF,"Garches, Hauts-de-Seine",no,,,,,,,Hôpital Raymond Poincaré
+43430,FR-0090,heliport,Les Sangliers Heliport,48.78354,2.071123,518,EU,FR,FR-IDF,"Guyancourt, Yvelines",no,,,,,,,
+43431,FR-0091,heliport,Saint-Ouen-l'Aumône Heliport,49.057787,2.14487,135,EU,FR,FR-IDF,"Saint-Ouen-l'Aumône, Val-d'Oise",no,,,,,,,
+43432,FR-0092,heliport,Toussus-le-Noble Heliport,48.74954,2.103994,538,EU,FR,FR-IDF,"Toussus-le-Noble, Yvelines",no,,,,,,,
+43488,FR-0148,heliport,Casino Heliport,49.599998474121094,1.5333329439163208,492,EU,FR,FR-NOR,Forges Les Eaux,no,,,,,,,
+43507,FR-0167,heliport,Camas Heliport,49.732176,3.214097,220,EU,FR,FR-HDF,"Jussy, Aisne",no,,,,,,,
+43509,FR-0169,heliport,Centre Hospitalier Heliport,49.38972091674805,2.79555606842041,108,EU,FR,FR-HDF,Compiegne,no,,,,,,,
+43510,FR-0170,heliport,Soissons Hospital Heliport,49.369323,3.331053,172,EU,FR,FR-HDF,"Soissons, Aisne",no,,,,,,,
+43511,FR-0171,heliport,Chauny Hospital Heliport,49.625405,3.236193,180,EU,FR,FR-HDF,"Chauny, Aisne",no,,,,,,,
+43513,FR-0173,heliport,Centre Hospitalier Laënnec Heliport,49.247222900390625,2.4580559730529785,238,EU,FR,FR-HDF,Creil,no,,,,,,,
+43514,FR-0174,heliport,Amiens South Hospital Heliport,49.876038,2.257489,250,EU,FR,FR-HDF,"Amiens, Somme",no,,,,,,,
+308840,FR-0316,heliport,Simone Veil Beauvais Hospital Heliport,49.449339,2.068497,301,EU,FR,FR-HDF,Beauvais,no,,,,,,,
+308842,FR-0317,heliport,South Île-de-France Hospital Heliport,48.620279,2.457238,256,EU,FR,FR-IDF,"Corbeil-Essonnes, Essonne",no,,,,,,,Centre Hospitalier Sud Francilien
+308845,FR-0318,heliport,Bicêtre Hospital Heliport,48.809506,2.35622,269,EU,FR,FR-IDF,"Le Kremlin-Bicêtre, Val-de-Marne",no,,,,,,,
+322121,FR-0353,small_airport,Val de l'Ailette Airfield,49.568056,3.225278,180,EU,FR,FR-HDF,"Pierremande, Aisne",no,,,,LF0259,,,Base ULM du Val de l'Ailette
+329135,FR-0377,closed,Laon-Couvron Air Base,49.63048,3.54344,,EU,FR,FR-HDF,"Vivaise, Aisne",no,,,,,,https://fr.wikipedia.org/wiki/Base_a%C3%A9rienne_de_Laon-Couvron,
+330786,FR-0382,closed,Petit Fay Airfield,48.247629,3.194275,607,EU,FR,FR-BFC,"Nailly, Yonne",no,,,,,,,"LF8926, Base ULM du Petit Fay"
+333744,FR-0396,heliport,Centre Hospitalier de Rambouillet,48.651925,1.826976,,EU,FR,FR-IDF,Rambouillet,no,,,,,,,
+338099,FR-0432,small_airport,Mosloy Airfield,49.174466,3.154335,453,EU,FR,FR-HDF,"La Ferté-Milon, Aisne",no,,,,LF0223,,,Base ULM de Mosloy
+338103,FR-0434,small_airport,Brochot Aerodrome,48.976587,3.373087,574,EU,FR,FR-HDF,"Chézy-sur-Marne, Aisne",no,,,,LF0226,,,Aérodrome de Brochot
+339743,FR-0437,small_airport,Les Noyers Ultralight Airfield,49.25944,1.65973,328,EU,FR,FR-NOR,"Noyers, Eure",no,,,,LF2751,https://www.centreulmlesnoyers.com/,,"Base ULM Les Noyers, Centre ULM Les Noyers"
+339788,FR-0453,small_airport,Flavacourt Ultralight Airfield,49.35105,1.81304,456,EU,FR,FR-HDF,"Flavacourt, Oise",no,,,,LF6026,http://www.gite-de-la-loge.com,,Base ULM de Flavacourt
+342295,FR-0465,small_airport,Neuflieux Airfield,49.611111,3.148611,195,EU,FR,FR-HDF,"Neuflieux, Aisne",no,,,,LF0253,,,Base ULM Neuflieux
+342300,FR-0467,small_airport,Taillefontaine Airfield,49.307868,3.06599,475,EU,FR,FR-HDF,"Taillefontaine, Aisne",no,,,,LF0257,,,Base ULM de Taillefontaine
+354018,FR-0494,small_airport,Genevrelle à Maisse Airfield,48.387512,2.349953,420,EU,FR,FR-IDF,"Maisse, Essonne",no,,,,LF9151,,,"Base ULM de Genevrelle à Maisse, Libellule 91"
+354020,FR-0495,small_airport,Base Paramoteurs de Boigny-Méréville,48.329414,2.088829,436,EU,FR,FR-IDF,Méréville,no,,,,LF9152,,,
+354021,FR-0496,small_airport,Avernes Paramotor Airfield,49.10568,1.87907,456,EU,FR,FR-IDF,"Avernes, Val-d'Oise",no,,,,LF9551,,,"Base Paramoteurs d'Avernes, Grand Paris Paramoteur"
+355191,FR-0499,small_airport,Les Ailes d'Eure et Loir Airfield,48.59244,1.53759,480,EU,FR,FR-CVL,"Pierres, Eure-et-Loir",no,,,,LF2834,,,
+355195,FR-0500,small_airport,Écrosnes ULM,48.561187,1.730196,520,EU,FR,FR-CVL,Écrosnes,no,,,,LF2830,,,Base ULM d'Écrosnes
+356278,FR-0503,small_airport,Mouy Airfield,49.313914,2.298397,371,EU,FR,FR-HDF,,no,,,,LF6051,,,
+429762,FR-0504,small_airport,La Trétoire Ultralight Airfield,48.86822,3.24902,,EU,FR,FR-IDF,"La Trétoire, Seine-et-Marne",no,,,,,,,Base ULM de La Trétoire
+429770,FR-0506,small_airport,Chevry-Cossigny Paramotor Field,48.708408,2.645881,328,EU,FR,FR-IDF,"Chevry-Cossigny, Seine-et-Marne",no,,,,LF7758,,,Lfvz
+510327,FR-0526,small_airport,Mondreville Ultralight Airfield,48.168611,2.597778,351,EU,FR,FR-IDF,"Mondreville, Seine-et-Marne",no,,,,LF7752,https://map.aerobreak.com/data/ficheffplum/LF7752.pdf,,Base ULM de Mondreville
+517463,FR-0559,small_airport,Lœuilly Airfield,49.76532,2.21518,505,EU,FR,FR-HDF,"Ô-de-Selle, Somme",no,,,,LF8051,https://aclloeuilly.wixsite.com/aclloeuilly/le-club,,"Aérodrome de Lœuilly, Loeuilly"
+528757,FR-0695,small_airport,Bray sur Seine Airfield,48.431944,3.273056,180,EU,FR,FR-IDF,,no,,,,LF7753,,,
+528777,FR-0714,small_airport,Houville La Branche Airfield,48.453056,1.629722,496,EU,FR,FR-CVL,,no,,,,LF2851,,,
+528778,FR-0715,small_airport,La Maison des Pionniers Airfield,48.824444,1.583889,360,EU,FR,FR-CVL,"Saint-Lubin-de-la-Haye, Eure-et-Loir",no,,,,LF2855,,,
+528803,FR-0738,small_airport,Marsainvilliers Airfield,48.221667,2.261111,416,EU,FR,FR-CVL,,no,,,,LF4556,http://www.lesdrolesdoiseaux.fr,,
+528836,FR-0758,small_airport,Reims Concept Ultralight Airfield,49.204332,3.733799,557,EU,FR,FR-GES,"Lagery, Marne",no,,,,LF5124,,,
+528878,FR-0799,small_airport,Orgenoy Airfield,48.492806,2.573548,262,EU,FR,FR-IDF,"Boissise-le-Roi, Seine-et-Marne",no,,,,LF7754,,,
+528879,FR-0800,small_airport,Thoiry Airfield,48.875357,1.79374,380,EU,FR,FR-IDF,"Thoiry, Yvelines",no,,,,LF7853,http://www.ulm-thoiry.com/,,Base ULM de Thoiry
+528880,FR-0801,small_airport,La Ferme des Prés Airfield,48.827778,1.790556,296,EU,FR,FR-IDF,"Boissy-sans-Avoir, Yvelines",no,,,,LF7854,,,
+529052,FR-0965,heliport,Gonesse Hospital Heliport,48.99208,2.45152,230,EU,FR,FR-IDF,"Gonesse, Val-d'Oise",no,,,,,,,Centre Hospitalier de Gonesse
+529053,FR-0966,small_airport,Frétoy-le-Château Airfield,49.6675,2.968056,270,EU,FR,FR-HDF,"Frétoy-le-Château, Oise",no,,,,LF6023,https://www.skydivefretoy.com/,,
+529055,FR-0968,small_airport,Poix de Picardie Airfield,49.780278,2.001944,604,EU,FR,FR-HDF,"Croixrault, Somme",no,,,,LF8052,,,
+529130,FR-1043,small_airport,Saint-Thibault Airfield,49.693374,1.81118,660,EU,FR,FR-HDF,"Saint-Thibault, Oise",no,,,,LF6025,,,
+529208,FR-1048,heliport,Château-Thierry Jeanne de Navarre Hospital Heliport,49.05238,3.41221,387,EU,FR,FR-HDF,"Château-Thierry, Aisne",no,,,,,,,
+529218,FR-1055,small_airport,Paramoteur Paris Ouest Airfield,48.7675,1.540556,433,EU,FR,FR-CVL,,no,,,,LF2857,,,
+529268,FR-1094,heliport,Melun Hospital Heliport,48.557644,2.641718,338,EU,FR,FR-IDF,"Melun, Seine-et-Marne",no,,,,,,,Melun Centre Hospitalier Heliport
+529269,FR-1095,heliport,Grand Hôpital de l'Est Francilien - Marne-la-Vallée Central Hospital Heliport,48.848641,2.769879,412,EU,FR,FR-IDF,"Jossigny, Seine-et-Marne",no,,,,,,,Grand Hôpital de l'Est Francilien - Site de Marne-la-Vallée Heliport
+529274,FR-1100,heliport,Laon Hospital SAMU 15 Heliport,49.550248,3.596891,233,EU,FR,FR-HDF,"Laon, Aisne",no,,,,,,,
+529280,FR-1104,small_airport,La Saussaye Airfield,48.4125,1.553889,495,EU,FR,FR-CVL,,no,,,,LF2854,https://www.ulm-la-saussaye.fr/,,
+529308,FR-1128,small_airport,La Fontaine au Berger Airfield,48.582222,1.728889,476,EU,FR,FR-IDF,,no,,,,LF7852,,,
+529322,FR-1138,heliport,Le Plessis-Robinson Marie Lannelongue Hospital Heliport,48.784722,2.274167,382,EU,FR,FR-IDF,"Le Plessis-Robinson, Hauts-de-Seine",no,,,,,,,
+529333,FR-1149,heliport,Versailles Central André Mignot Hospital Heliport,48.830872,2.127759,492,EU,FR,FR-IDF,"Versailles, Yvelines",no,,,,,,,Versailles Centre Hospitalier Heliport
+534878,FR-1172,closed,Mérantais Airfield,48.7541,2.06785,,EU,FR,FR-IDF,"Magny-les-Hameaux, Yvelines",no,,,,,,,
+534879,FR-1173,closed,Buc Airfield,48.76694,2.1235,,EU,FR,FR-IDF,Buc,no,,,,,,,
+535664,FR-1177,heliport,Laon Hospital Heliport,49.563347,3.611825,610,EU,FR,FR-HDF,"Laon, Aisne",no,,,,,,,
+553356,FR-1194,heliport,Orry DZ,49.129267,2.522103,,EU,FR,FR-HDF,Orry-la-Ville,no,,,,,,,
+553403,FR-1205,heliport,Heli-Technique DZ,48.921491,3.043503,,EU,FR,FR-HDF,Signy-Signets,no,,,,,,,
+553410,FR-1209,heliport,Mesnil DZ,49.777841,2.918844,,EU,FR,FR-HDF,Mesnil-saint-nicaise,no,,,,,,,
+553411,FR-1210,heliport,Équipée DZ,49.819566,3.061618,,EU,FR,FR-HDF,Ugny-l’Equipée,no,,,,,,,
+553412,FR-1211,heliport,Fublaines DZ,48.930133,2.945409,,EU,FR,FR-HDF,Fublaines DZ,no,,,,,,,
+28980,FR-1252,closed,Brétigny-sur-Orge Air Base,48.5961,2.33222,270,EU,FR,FR-IDF,"Le Plessis-Pâté, Essonne",no,,,,,,,LFPY
+29028,FR-1266,closed,Saint-Simon - Clastres Air Base,49.757542,3.21598,295,EU,FR,FR-HDF,"Clastres, Aisne",no,,,,,,https://en.wikipedia.org/wiki/Saint-Simon_%E2%80%93_Clastres_Air_Base,LFYT
+29929,FR-1267,closed,Guyancourt Airport,48.7603,2.0625,541,EU,FR,FR-IDF,"Guyancourt, Yvelines",no,,,,,,http://fr.wikipedia.org/wiki/A%C3%A9rodrome_de_Guyancourt,LFPR
+31812,FR-1270,closed,Aérodrome de Soissons-Cuffies,49.400002,3.317,138,EU,FR,FR-HDF,"Cuffies, Aisne",no,,,,,,,LFAH
+595807,FR-1278,closed,Jumel Ultralight Airfield,49.757233,2.302594,413,EU,FR,FR-HDF,Jumel,no,,,,,,,LF8022
+598057,FR-1284,heliport,Brissay-Choigny,49.721622,3.380656,,EU,FR,FR-HDF,Brissay-Choigny,no,,,,,,,
+599028,FR-1293,heliport,LONGUEUIL SAINTE MARIE DZ,49.34388,2.716616,,EU,FR,FR-HDF,Longueuil-sainte-marie,no,,,,,,,
+600461,FR-1316,heliport,ROYE DZ,49.698006,2.801428,,EU,FR,FR-HDF,Roye,no,,,,,,,
+600462,FR-1317,heliport,HOMBLEUX DZ,49.73864,2.971909,,EU,FR,FR-HDF,Hombleux,no,,,,,,,
+600734,FR-1321,heliport,Château de Champlâtreux,49.08615,2.408645,,EU,FR,FR-IDF,Épinay-Champlâtreux,no,,,,,,,
+605977,FR-1326,small_airport,Champseru Airfield,48.50128,1.67677,472,EU,FR,FR-CVL,Champseru,no,,,,,,,
+28771,LFAD,small_airport,Compiègne Margny Airfield,49.431242,2.801514,315,EU,FR,FR-HDF,Margny-lès-Compiègne,no,LFAD,,LFAD,,,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_de_Compi%C3%A8gne_-_Margny,XCP
+4052,LFAI,small_airport,Nangis-Les Loges Aerodrome,48.596199,3.00679,428,EU,FR,FR-IDF,Clos-Fontaine,no,LFAI,,LFAI,,,https://en.wikipedia.org/wiki/Nangis_-_Les_Loges_aerodrome,Aérodrome de Nangis Les Loges
+28780,LFAR,small_airport,Montdidier Airfield,49.672118,2.567811,358,EU,FR,FR-HDF,Montdidier,no,LFAR,,LFAR,,http://www.lfar.fr/,https://de.wikipedia.org/wiki/Flugplatz_Montdidier-Figni%C3%A8res,
+4057,LFAY,medium_airport,Amiens Glisy Airfield,49.873004,2.387074,208,EU,FR,FR-HDF,Amiens,no,LFAY,,LFAY,,,https://en.wikipedia.org/wiki/Amiens_%E2%80%93_Glisy_Aerodrome,"QAM, Aérodrome d'Amiens-Glisy"
+28837,LFFB,small_airport,Buno-Bonnevaux Airfield,48.350074,2.424431,420,EU,FR,FR-IDF,"Buno-Bonnevaux, Essonne",no,LFFB,,LFFB,,,,
+28838,LFFC,small_airport,Mantes-Chérence Airfield,49.078814,1.68829,512,EU,FR,FR-IDF,"Chérence, Val-d'Oise",no,LFFC,,LFFC,,,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_de_Mantes_-_Ch%C3%A9rence,
+28839,LFFD,small_airport,Saint-André-de-l'Eure Airfield,48.897669,1.250839,489,EU,FR,FR-NOR,"Saint-André-de-l'Eure, Eure",no,LFFD,,LFFD,,,https://en.wikipedia.org/wiki/Saint-Andr%C3%A9-de-l%27Eure_Airfield,Evreux-Saint-André
+28840,LFFE,small_airport,Enghien-Moisselles Airfield,49.046016,2.353976,335,EU,FR,FR-IDF,"Attainville, Val-d'Oise",no,LFFE,,LFFE,,,https://en.wikipedia.org/wiki/Enghien_Moisselles_Airfield,
+28841,LFFG,small_airport,La Ferté-Gaucher Airfield,48.757019,3.278098,538,EU,FR,FR-IDF,"La Ferté-Gaucher, Seine-et-Marne",no,LFFG,,LFFG,,,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_de_La_Fert%C3%A9-Gaucher,
+28842,LFFH,small_airport,Château-Thierry-Belleau Airfield,49.066753,3.355465,728,EU,FR,FR-HDF,"Château-Thierry, Aisne",no,LFFH,,LFFH,,,https://en.wikipedia.org/wiki/Ch%C3%A2teau-Thierry_%E2%80%93_Belleau_Aerodrome,
+28845,LFFL,small_airport,Bailleau Armenonville Airfield,48.5158,1.64,509,EU,FR,FR-CVL,,no,,,LFFL,,,,
+28847,LFFP,small_airport,Pithiviers Airfield,48.155176,2.187563,384,EU,FR,FR-CVL,"Pithiviers, Loiret",no,,,LFFP,,,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_de_Pithiviers,
+28848,LFFQ,small_airport,Cerny-La Ferté Alais Airfield,48.498571,2.336891,453,EU,FR,FR-IDF,"Cerny, Essonne",no,,,LFFQ,,https://www.musee-volant-salis.fr/,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_de_La_Fert%C3%A9-Alais,"Jean-Baptiste Salis, Plateau Ardenay, AVA, Aero Vintage Academy, Salis"
+28855,LFFY,small_airport,Étrépagny Airfield,49.305273,1.637907,308,EU,FR,FR-NOR,Étrépagny,no,,,LFFY,,http://aeroclubduvexin.com/,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_d%27%C3%89tr%C3%A9pagny,
+28856,LFFZ,small_airport,Sézanne-Saint-Remy Airfield,48.70957,3.763304,354,EU,FR,FR-GES,"Saint-Remy-sous-Broyes, Marne",no,,,LFFZ,,,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_de_S%C3%A9zanne_-_Saint-Remy,
+28866,LFGO,small_airport,Pont-sur-Yonne Airfield,48.291587,3.245745,236,EU,FR,FR-BFC,"Gisy-les-Nobles, Yonne",no,,,LFGO,,,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_de_Pont-sur-Yonne,
+28914,LFJS,small_airport,Soissons-Courmelles Airfield,49.344978,3.282681,509,EU,FR,FR-HDF,"Soissons, Aisne",no,LFJS,,LFJS,,,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_de_Soissons_-_Courmelles,"XSS, Aérodrome de Soissons - Courmelles"
+4169,LFOB,large_airport,Beauvais-Tillé airport,49.454399,2.11278,359,EU,FR,FR-HDF,Beauvais,yes,LFOB,BVA,LFOB,,https://www.aeroportparisbeauvais.com/,https://en.wikipedia.org/wiki/Paris_Beauvais_Till%C3%A9_Airport,Beauvais-Tillé
+4172,LFOE,medium_airport,Évreux-Fauville (BA 105) Air Base,49.028702,1.21986,464,EU,FR,FR-NOR,"Fauville, Eure",no,LFOE,EVX,LFOE,,,https://en.wikipedia.org/wiki/%C3%89vreux-Fauville_Air_Base,
+28963,LFON,small_airport,Dreux Vernouillet Airfield,48.70543,1.361155,443,EU,FR,FR-CVL,"Vernouillet, Yvelines",no,LFON,,LFON,,,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_de_Dreux_-_Vernouillet,XDR
+28965,LFOR,small_airport,Chartres-Métropole Airfield,48.457502,1.519843,509,EU,FR,FR-CVL,"Chartres, Eure-et-Loir",no,LFOR,,LFOR,,,https://en.wikipedia.org/wiki/Chartres_%E2%80%93_Champhol_Aerodrome,"QTJ, Champhol, A-40"
+28968,LFOX,small_airport,Étampes-Mondésir Airfield,48.381901,2.07528,494,EU,FR,FR-IDF,"Guillerval, Essonne",no,,,LFOX,,,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_d%27%C3%89tampes_-_Mond%C3%A9sir,
+28970,LFPA,small_airport,Persan-Beaumont Airfield,49.165798,2.31306,148,EU,FR,FR-IDF,"Bernes-sur-Oise, Val-d'Oise",no,,,LFPA,,,https://en.wikipedia.org/wiki/Persan-Beaumont_Airport,Aérodrome de Persan-Beaumont
+4183,LFPB,large_airport,Paris-Le Bourget International Airport,48.962276,2.436539,218,EU,FR,FR-IDF,Paris,no,LFPB,LBG,LFPB,,http://www.aeroportsdeparis.fr/,https://en.wikipedia.org/wiki/Le_Bourget_Airport,PAR
+4184,LFPC,medium_airport,Creil Air Base,49.253502,2.51914,291,EU,FR,FR-HDF,Creil,no,LFPC,CSF,LFPC,,,https://fr.wikipedia.org/wiki/Base_a%C3%A9rienne_110_Creil,BA 110
+28972,LFPE,small_airport,Meaux-Esbly Airfield,48.927462,2.833457,217,EU,FR,FR-IDF,"Isles-lès-Villenoy, Seine-et-Marne",no,,,LFPE,,,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_de_Meaux_-_Esbly,Aérodrome de Meaux-Esbly
+28973,LFPF,small_airport,Beynes Thiverval Airfield,48.843165,1.906279,371,EU,FR,FR-IDF,"Beynes, Yvelines",no,LFPF,,LFPF,,,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_de_Beynes_-_Thiverval,Aérodrome de Beynes - Thiverval
+4185,LFPG,large_airport,Charles de Gaulle International Airport,49.00896,2.554117,392,EU,FR,FR-IDF,"Paris (Roissy-en-France, Val-d'Oise)",yes,LFPG,CDG,LFPG,,http://www.aeroportsdeparis.fr/,https://en.wikipedia.org/wiki/Charles_de_Gaulle_Airport,"PAR, Aéroport Roissy-Charles de Gaulle, Roissy Airport"
+28974,LFPH,small_airport,Chelles-le-Pin Airfield,48.896568,2.606206,207,EU,FR,FR-IDF,"Chelles, Seine-et-Marne",no,,,LFPH,,,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_de_Chelles_-_Le_Pin,Aérodrome de Chelles-le-Pin
+30241,LFPI,heliport,Paris Issy-les-Moulineaux Heliport,48.832987,2.273043,112,EU,FR,FR-IDF,"Issy-les-Moulineaux, Hauts-de-Seine",no,,,LFPI,,,https://fr.wikipedia.org/wiki/H%C3%A9liport_de_Paris_-_Issy-les-Moulineaux_-_Val%C3%A9rie-Andr%C3%A9,JDP
+4186,LFPK,small_airport,Coulommiers-Voisins Aerodrome,48.839602,3.008653,470,EU,FR,FR-IDF,"Pommeuse, Seine-et-Marne",no,LFPK,,LFPK,,,https://en.wikipedia.org/wiki/Coulommiers_%E2%80%93_Voisins_Aerodrome,Aérodrome de Coulommiers - Voisins
+28975,LFPL,small_airport,Lognes Emerainville Airfield,48.821028,2.625967,359,EU,FR,FR-IDF,"Lognes, Seine-et-Marne",no,LFPL,,LFPL,,,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_de_Lognes-%C3%89merainville,"XLG, Aérodrome Lognes-Emerainville"
+4187,LFPM,medium_airport,Melun-Villaroche Airfield,48.604698,2.67112,302,EU,FR,FR-IDF,"Moissy-Cramayel, Seine-et-Marne",no,,,LFPM,,,https://en.wikipedia.org/wiki/Melun_Villaroche_Aerodrome,
+4188,LFPN,medium_airport,Toussus-le-Noble Airport,48.7519,2.10619,538,EU,FR,FR-IDF,"Toussus-le-Noble, Yvelines",no,LFPN,TNF,LFPN,,,https://en.wikipedia.org/wiki/Toussus-le-Noble_Airport,
+4189,LFPO,large_airport,Paris-Orly Airport,48.729499,2.358963,291,EU,FR,FR-IDF,"Paris (Orly, Val-de-Marne)",yes,LFPO,ORY,LFPO,,https://www.parisaeroport.fr/orly,https://en.wikipedia.org/wiki/Orly_Airport,
+28976,LFPP,small_airport,Le Plessis-Belleville Airfield,49.108837,2.736138,387,EU,FR,FR-HDF,Le Plessis-Belleville,no,,,LFPP,,,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_du_Plessis-Belleville,
+28977,LFPQ,small_airport,Fontenay-Trésigny Aerodrome,48.706276,2.902849,371,EU,FR,FR-IDF,Fontenay-Trésigny,no,,,LFPQ,,,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_de_Fontenay-Tr%C3%A9signy,Aérodrome de Fontenay-Trésigny
+4190,LFPT,medium_airport,Pontoise-Cormeilles Aerodrome,49.096064,2.035543,325,EU,FR,FR-IDF,"Cormeilles-en-Vexin, Val-d'Oise",no,LFPT,POX,LFPT,,,https://en.wikipedia.org/wiki/Pontoise_%E2%80%93_Cormeilles_Aerodrome,"Aérodrome de Pontoise-Cormeilles en Vexin, Cergy Pontoise"
+28978,LFPU,small_airport,Moret-Episy Airfield,48.34119,2.798517,253,EU,FR,FR-IDF,"Moret-Loing-et-Orvanne, Seine-et-Marne",no,,,LFPU,,,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_de_Moret_-_%C3%89pisy,Aéroclub de la Vallée du Loing
+4191,LFPV,medium_airport,Vélizy-Villacoublay Air Base,48.774406,2.203102,584,EU,FR,FR-IDF,"Vélizy-Villacoublay, Yvelines",no,,VIY,LFPV,,,https://en.wikipedia.org/wiki/V%C3%A9lizy_%E2%80%93_Villacoublay_Air_Base,BA 107
+28979,LFPX,small_airport,Chavenay-Villepreux Airfield,48.842323,1.9805,426,EU,FR,FR-IDF,"Chavenay, Yvelines",no,LFPX,,LFPX,,,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_de_Chavenay_-_Villepreux,
+28981,LFPZ,small_airport,Saint-Cyr-l'École Airport,48.812459,2.067533,373,EU,FR,FR-IDF,"Saint-Cyr-l'École, Yvelines",no,,,LFPZ,,,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_de_Saint-Cyr-l%27%C3%89cole,
+29020,LFXU,small_airport,Les Mureaux Airfield,48.998299,1.94278,89,EU,FR,FR-IDF,"Les Mureaux, Yvelines",no,,,LFXU,,,https://fr.wikipedia.org/wiki/A%C3%A9rodrome_des_Mureaux,

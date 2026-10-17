@@ -1,0 +1,27 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  themes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tests/requirements.txt
+      - name: Install what the app needs on its simulated display
+        run: pip install -r tests/requirements.txt
+      - name: Keep the app checkout between runs
+        uses: actions/cache@v4
+        with:
+          path: tests/.cache/turing-smart-screen-python
+          key: turing-smart-screen-python-3.10.0
+      - name: Run every check (generator, states, boot animations, whole app on an emulated rev A)
+        run: python tests/run.py

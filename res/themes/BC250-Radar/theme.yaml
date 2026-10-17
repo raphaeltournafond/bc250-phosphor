@@ -81,7 +81,7 @@ STATS:
         SHOW: True
         SHOW_UNIT: True
         X: 426
-        Y: 210
+        Y: 208
         WIDTH: 48
         HEIGHT: 24
         FONT: fusion-pixel/fusion-pixel-12px-monospaced-zh_hans.otf
@@ -121,7 +121,7 @@ STATS:
         SHOW: True
         SHOW_UNIT: True
         X: 346
-        Y: 210
+        Y: 208
         WIDTH: 60
         HEIGHT: 24
         FONT: fusion-pixel/fusion-pixel-12px-monospaced-zh_hans.otf

@@ -148,11 +148,14 @@ class _Draw:
     @classmethod
     def show(cls, image, box: dict):
         if cls.screen is not None:  # only the pixels that changed (a blinking cursor: just the cursor)
+            import random
             key, now = (box["X"], box["Y"], image.width, image.height), time.monotonic()
-            # ...and once a minute the whole widget, should the screen have lost what it showed
-            full = image.width * image.height <= 20000 and now - cls._repainted.get(key, 0) > 60
+            # ...and about once a minute the whole widget, should the screen have lost what it showed: each widget at
+            # its own moment, so they never all go out together (a burst would hold up the radar's sweep)
+            due = cls._repainted.setdefault(key, now + random.uniform(10, 60))
+            full = image.width * image.height <= 20000 and now >= due
             if full:
-                cls._repainted[key] = now
+                cls._repainted[key] = now + random.uniform(55, 65)
             cls.screen.DisplayPILImage(image, box["X"], box["Y"], full=full)
             return
         from library.display import display
