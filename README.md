@@ -30,7 +30,7 @@ Eight themes for [turing-smart-screen-python](https://github.com/mathoudebine/tu
 
 ![nixie landscape](res/themes/BC250-Nixie/preview.png) ![nixie portrait](res/themes/BC250-Nixie/preview_portrait.png)
 
-**Radar** (`--theme radar`): live aircraft around a point you choose, from free community ADS-B data. A military-green radar scope with range rings, the airports and runways in range, and a sweeping beam; each aircraft is a target that flashes as the beam passes and fades behind it, shaded by altitude (yellow-green low, green mid, teal high, red for an emergency squawk) with an ATC-style tag (callsign, flight level, speed). Beside it: the nearest flight in big letters (callsign, route, airline, altitude, speed, type, distance), the next four, CPU and GPU temperature and load, and what's playing.
+**Radar** (`--theme radar`): live aircraft around a point you choose, from free community ADS-B data. A military-green radar scope over a faint relief map (hillshade and contour lines), with range rings, the airports and runways in range, and a sweeping beam; each aircraft is a target that flashes as the beam passes and fades behind it, shaded by altitude (yellow-green low, green mid, teal high, red for an emergency squawk) with an ATC-style tag (callsign, flight level, speed). Beside it: the nearest flight in big letters (callsign, route, airline, altitude, speed, type, distance), the next four, CPU and GPU temperature and load, and what's playing.
 
 ![radar landscape](res/themes/BC250-Radar/preview.png) ![radar portrait](res/themes/BC250-Radar/preview_portrait.png)
 
@@ -40,7 +40,7 @@ bash bc250-themes/setup.sh --theme radar --radar-lat 48.8584 --radar-lon 2.2945 
 
 - Coordinates in decimal degrees (Google Maps: right-click a spot); `48°51'30"N` style works too, quoted. Range 5 to 400 km.
 - Your coordinates stay on the BC-250 (in the saved setup options), and are sent only to the data services below.
-- Data: aircraft from [adsb.lol](https://adsb.lol) (falls back to [adsb.fi](https://adsb.fi)), routes from [adsbdb](https://www.adsbdb.com), airports from [OurAirports](https://ourairports.com) (downloaded once at setup). Free community services for personal use: the radar asks every 6 s and stops while the screen sleeps. Routes are only shown when they fit where the aircraft actually is (community route data can be stale).
+- Data: aircraft from [adsb.lol](https://adsb.lol) (falls back to [adsb.fi](https://adsb.fi)), routes from [adsbdb](https://www.adsbdb.com), airports from [OurAirports](https://ourairports.com) and relief from the [Terrain Tiles on AWS](https://registry.opendata.aws/terrain-tiles/) (Mapzen; SRTM, EU-DEM and others), both downloaded once at setup into `~/.cache/bc250-themes`. Free community services for personal use: the radar asks every 6 s and stops while the screen sleeps. Routes are only shown when they fit where the aircraft actually is (community route data can be stale).
 - `bc250_check.py` tells you whether the data services answer.
 - Tip: a plane-spotting screen should stay bright: add `--dim-after 0`.
 

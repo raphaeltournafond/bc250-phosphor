@@ -1828,6 +1828,89 @@ def radar_map(lat, lon, km):
     return airports, runways
 
 
+TERRAIN_TILES = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
+
+
+def radar_terrain(lat, lon, km, r):
+    """A faint relief map for the scope: hillshade lit from the north-west plus contour lines, in the scope's dark
+    greens, as an RGB image of (2r+1)^2 pixels. Elevation from the public Terrain Tiles on AWS (no key), downloaded
+    once into ~/.cache/bc250-themes/terrain; None without network."""
+    import io
+    import urllib.request
+    import numpy
+    cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "bc250-themes" / "terrain"
+    km_per_px = km / r
+    zoom = max(3, min(11, math.ceil(math.log2(40075 * math.cos(math.radians(lat)) / 256 / km_per_px))))
+    n = 2 ** zoom
+
+    # the latitude / longitude under every pixel of the scope (same flat projection as the radar's blips)
+    kx, ky = 111.32 * math.cos(math.radians(lat)), 110.57
+    offsets = (numpy.arange(2 * r + 1) - r) * km_per_px
+    lons = lon + offsets[None, :] / kx
+    lats = lat - offsets[:, None] / ky
+    gx = (lons + 180) / 360 * n * 256  # Web Mercator pixel coordinates of the tile pyramid
+    gy = (1 - numpy.arcsinh(numpy.tan(numpy.radians(lats))) / math.pi) / 2 * n * 256
+    gx, gy = numpy.broadcast_to(gx, (2 * r + 1, 2 * r + 1)), numpy.broadcast_to(gy, (2 * r + 1, 2 * r + 1))
+    tx0, tx1 = int(gx.min() // 256), int(gx.max() // 256)
+    ty0, ty1 = int(gy.min() // 256), int(gy.max() // 256)
+
+    mosaic = numpy.zeros(((ty1 - ty0 + 1) * 256, (tx1 - tx0 + 1) * 256), numpy.float32)
+    for ty in range(ty0, ty1 + 1):
+        for tx in range(tx0, tx1 + 1):
+            path = cache / f"{zoom}_{tx % n}_{ty}.png"
+            try:
+                if not path.is_file():
+                    cache.mkdir(parents=True, exist_ok=True)
+                    request = urllib.request.Request(TERRAIN_TILES.format(z=zoom, x=tx % n, y=ty),
+                                                     headers={"User-Agent": "bc250-themes"})
+                    with urllib.request.urlopen(request, timeout=30) as answer:
+                        path.write_bytes(answer.read())
+                rgb_ = numpy.asarray(Image.open(path).convert("RGB"), numpy.float32)
+            except Exception as e:
+                print(f"note: no terrain on the radar ({e})")
+                return None
+            elevation = rgb_[..., 0] * 256 + rgb_[..., 1] + rgb_[..., 2] / 256 - 32768  # "terrarium" encoding
+            mosaic[(ty - ty0) * 256:(ty - ty0 + 1) * 256, (tx - tx0) * 256:(tx - tx0 + 1) * 256] = elevation
+    # bilinear sampling of the mosaic under each scope pixel
+    fx, fy = gx - tx0 * 256, gy - ty0 * 256
+    x0 = numpy.clip(numpy.floor(fx).astype(int), 0, mosaic.shape[1] - 2)
+    y0 = numpy.clip(numpy.floor(fy).astype(int), 0, mosaic.shape[0] - 2)
+    ax, ay = numpy.clip(fx - x0, 0, 1), numpy.clip(fy - y0, 0, 1)
+    elev = (mosaic[y0, x0] * (1 - ax) * (1 - ay) + mosaic[y0, x0 + 1] * ax * (1 - ay)
+            + mosaic[y0 + 1, x0] * (1 - ax) * ay + mosaic[y0 + 1, x0 + 1] * ax * ay)
+    elev = numpy.maximum(elev, 0)  # the sea stays flat
+    for _ in range(2):  # a light blur: smoother contours, no speckle from the data's noise
+        padded = numpy.pad(elev, 1, mode="edge")
+        elev = sum(padded[dy:dy + elev.shape[0], dx:dx + elev.shape[1]] for dy in range(3) for dx in range(3)) / 9
+
+    # hillshade: light from the north-west, relief exaggerated so gentle hills still show
+    spacing = km_per_px * 1000
+    exaggeration = 4.0
+    dz_east = numpy.gradient(elev, axis=1) / spacing * exaggeration
+    dz_north = -numpy.gradient(elev, axis=0) / spacing * exaggeration
+    light = numpy.array([-0.5, 0.5, 0.707]) / numpy.linalg.norm([-0.5, 0.5, 0.707])
+    shade = (-dz_east * light[0] - dz_north * light[1] + light[2]) / numpy.sqrt(dz_east ** 2 + dz_north ** 2 + 1)
+    relief = numpy.clip((shade - light[2]) * 2.2, -1, 1)  # -1 in shadow .. 0 flat .. 1 facing the light
+    height = (elev - elev.min()) / max(1.0, float(elev.max() - elev.min()))
+
+    base = numpy.array(RD_DISC, numpy.float32)
+    lit, dark = numpy.array((6, 50, 18), numpy.float32), numpy.array((-2, -12, -5), numpy.float32)
+    colour = (base + numpy.where(relief[..., None] > 0, relief[..., None] * lit, -relief[..., None] * dark)
+              + height[..., None] * numpy.array((1, 8, 3), numpy.float32))
+
+    # contour lines, every 5th one a little brighter, as on a topographic chart
+    span = float(elev.max() - elev.min())
+    interval = next((v for v in (50, 100, 200, 250, 500, 1000) if span / v <= 6), 1000)
+    band = numpy.floor(elev / interval).astype(int)
+    edge = numpy.zeros(band.shape, bool)
+    edge[:, :-1] |= band[:, :-1] != band[:, 1:]
+    edge[:-1, :] |= band[:-1, :] != band[1:, :]
+    major = edge & (numpy.maximum(band, numpy.roll(band, -1, 1)) % 5 == 0)
+    colour[edge] = (6, 40, 16)
+    colour[major] = (10, 58, 24)
+    return Image.fromarray(numpy.clip(colour, 0, 255).astype(numpy.uint8), "RGB")
+
+
 def nice_step(km):
     return next(s for s in (1, 2, 5, 10, 20, 25, 50, 100, 200) if km / s <= 5)
 
@@ -1838,6 +1921,10 @@ def draw_scope(c, rings=True):
     c.d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=RD_DISC, outline=RD_RIM, width=2)
     if not rings:
         return
+    if RADAR.get("terrain") is not None:  # the relief, inside the rim
+        disc = Image.new("L", RADAR["terrain"].size, 0)
+        ImageDraw.Draw(disc).ellipse((2, 2, 2 * r - 2, 2 * r - 2), fill=255)
+        c.img.paste(RADAR["terrain"], (cx - r, cy - r), disc)
     km, (lat, lon) = RADAR["km"], RADAR["center"]
     k = r / km
     step = nice_step(km)
@@ -2010,6 +2097,7 @@ if __name__ == "__main__":
         if not (-90 <= center[0] <= 90 and -180 <= center[1] <= 180) or not 5 <= args.radar_range <= 400:
             parser.error("radar: latitude -90..90, longitude -180..180, range 5..400 km")
         RADAR.update(center=center, km=args.radar_range, map=radar_map(*center, args.radar_range))
+        RADAR["terrain"] = radar_terrain(*center, args.radar_range, RADAR["scope"][2])
     title = (args.title or {"videotex": f"P250 {LOGO}", "mission": f"MCC {LOGO}", "radar": f"{LOGO} RADAR"}.get(SKIN_NAME)
              or f"{LOGO}::{args.user.upper()}")[:28]
     prompt = f"{args.user}@{args.host}:~$"[:40]
