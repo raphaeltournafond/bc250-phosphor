@@ -30,7 +30,7 @@ Eight themes for [turing-smart-screen-python](https://github.com/mathoudebine/tu
 
 ![nixie landscape](res/themes/BC250-Nixie/preview.png) ![nixie portrait](res/themes/BC250-Nixie/preview_portrait.png)
 
-**Radar** (`--theme radar`): live aircraft around a point you choose, from free community ADS-B data. A radar scope with range rings, the airports and runways in range, and a sweep orbiting the rim; each aircraft is a blip coloured by altitude (orange low, yellow mid, cyan high, red for an emergency squawk) with an ATC-style tag (callsign, flight level, speed), refreshed as the sweep passes. Beside it: the nearest flight in big letters (callsign, route, airline, altitude, speed, type, distance), the next four, CPU and GPU temperature and load, and what's playing.
+**Radar** (`--theme radar`): live aircraft around a point you choose, from free community ADS-B data. A military-green radar scope with range rings, the airports and runways in range, and a sweeping beam; each aircraft is a target that flashes as the beam passes and fades behind it, shaded by altitude (yellow-green low, green mid, teal high, red for an emergency squawk) with an ATC-style tag (callsign, flight level, speed). Beside it: the nearest flight in big letters (callsign, route, airline, altitude, speed, type, distance), the next four, CPU and GPU temperature and load, and what's playing.
 
 ![radar landscape](res/themes/BC250-Radar/preview.png) ![radar portrait](res/themes/BC250-Radar/preview_portrait.png)
 

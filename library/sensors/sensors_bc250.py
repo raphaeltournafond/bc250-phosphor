@@ -882,7 +882,9 @@ class _Radar:
         self.lcd = _Screen(lcd, *base.size)
         self.memory = {}  # hex -> what the scope shows of it: position, data, when the sweep last passed
         self.angle = None
+        self.trail = []
         self.panel_state = None
+        self.lcd.TILE = int(spec.get("TILE", 10))  # short tiles hug a thin diagonal line (the sweep) better
 
     # -- data --------------------------------------------------------------------------------------------------------
     def colour(self, plane):
@@ -905,6 +907,7 @@ class _Radar:
         """Moves the blips the sweep passed over since the last frame, and forgets aircraft that are gone."""
         angle = (now / self.period * 360) % 360
         previous, self.angle = self.angle, angle
+        self.trail = (self.trail + [angle])[-4:]
         planes = {p["hex"]: p for p in _RadarFeed.aircraft}
         for hex_, plane in planes.items():
             x, y = self.now_position(plane, now)
@@ -931,11 +934,14 @@ class _Radar:
         layer = Image.new("RGB", frame.size, (0, 0, 0))
         d = ImageDraw.Draw(layer)
         ox, oy = self.cx - self.box[0], self.cy - self.box[1]
-        # the sweep: a bright arc orbiting the rim with a dimmer tail. A full-radius line would cost 5-10 KB per
-        # frame on the screen's link (every row it crosses); the arc is a few hundred pixels
-        rim = (ox - self.r + 1, oy - self.r + 1, ox + self.r - 1, oy + self.r - 1)
-        d.arc(rim, angle - 90 - 9, angle - 90 - 3, fill=_lerp((0, 0, 0), self.col["SWEEP"], 0.4), width=3)
-        d.arc(rim, angle - 90 - 3, angle - 90, fill=self.col["SWEEP"], width=4)
+        # the sweep line, and its afterglow at the positions of the last frames. A full-radius line costs every row
+        # it crosses on the screen's link, so it is 1 px wide and the afterglow is a few lines, not a filled wedge
+        trail = self.trail[-1 - int(self.spec.get("TRAIL", 1)):]
+        for i, a in enumerate(trail):
+            level = 1.0 if i == len(trail) - 1 else 0.25 + 0.3 * i / max(1, len(trail) - 1)
+            a = math.radians(a)
+            d.line((ox, oy, ox + (self.r - 1) * math.sin(a), oy - (self.r - 1) * math.cos(a)),
+                   fill=_lerp((0, 0, 0), self.col["SWEEP"], level))
         frame.paste(layer, (0, 0), _mask_of(layer, self.inside))
 
         d = ImageDraw.Draw(frame)
@@ -2066,7 +2072,7 @@ class _Screen:
         self.lcd.SetBrightness(level)
 
     @classmethod
-    def _rects(cls, changed):
+    def _rects(cls, changed, tile=None):
         """Rectangles (x1, y1, x2, y2) covering the True cells of a 2D mask: bands of changed rows, cut in tiles of
         TILE rows, each split where a wide run of columns is unchanged; runs lined up vertically are joined again."""
         import numpy
@@ -2082,8 +2088,8 @@ class _Screen:
         bands = runs(rows, cls.COMMAND_PX // changed.shape[1])
         rects, open_rects = [], {}  # open_rects: (x1, x2) -> rect ending on the row where the next tile starts
         for y1, y2 in bands:
-            for t1 in range(y1, y2, cls.TILE):
-                t2 = min(y2, t1 + cls.TILE)
+            for t1 in range(y1, y2, tile or cls.TILE):
+                t2 = min(y2, t1 + (tile or cls.TILE))
                 cols = numpy.flatnonzero(changed[t1:t2].any(axis=0))
                 if cols.size == 0:
                     continue
@@ -2096,6 +2102,20 @@ class _Screen:
                         rects.append(above)
                     open_rects[(x1, x2)] = above
         rects.sort(key=lambda r: (r[1], r[0]))
+        # stack rectangles that touch vertically when the pixels the union adds cost less than the command it saves
+        # (a steep line otherwise becomes one small rectangle per tile)
+        area = lambda r: (r[2] - r[0]) * (r[3] - r[1])
+        stacked = []
+        for r in rects:
+            for m in reversed(stacked[-16:]):
+                if m[3] == r[1] and m[0] <= r[2] and r[0] <= m[2]:
+                    union = [min(m[0], r[0]), m[1], max(m[2], r[2]), r[3]]
+                    if area(union) - area(m) - area(r) < cls.COMMAND_PX:
+                        m[:] = union
+                        break
+            else:
+                stacked.append(r)
+        rects = sorted(stacked, key=lambda r: (r[1], r[0]))
         if len(rects) > 4 * cls.MAX_RECTS:  # too scattered to sort out cheaply: whole bands
             rects = []
             for y1, y2 in bands:
@@ -2137,7 +2157,7 @@ class _Screen:
             self.shadow = new.copy()
             return
         old = self.shadow[y:y + h, x:x + w]
-        for x1, y1, x2, y2 in self._rects((new != old).any(axis=2)):
+        for x1, y1, x2, y2 in self._rects((new != old).any(axis=2), self.TILE):
             self._send(image.crop((x1, y1, x2, y2)), x + x1, y + y1)
         old[...] = new
 

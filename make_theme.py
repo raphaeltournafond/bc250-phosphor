@@ -86,10 +86,10 @@ SKINS = {
     "nixie": dict(folder="BC250-Nixie", bg=(10, 9, 8), dim=(120, 95, 58), mid=(190, 150, 85), value=(255, 150, 60),
                   accent=(255, 110, 40), cold=(255, 150, 60), hot=(255, 100, 30), alert=(255, 50, 40), ink=(10, 9, 8),
                   grid_dot=(40, 32, 26), palette=None),
-    # Radar: a dark scope with a turning sweep, aircraft coloured by altitude, white data tags
-    "radar": dict(folder="BC250-Radar", bg=(6, 12, 18), dim=(70, 110, 118), mid=(110, 170, 178), value=(235, 242, 242),
-                  accent=(255, 170, 60), cold=(100, 220, 255), hot=(255, 160, 60), alert=(255, 70, 60), ink=(6, 12, 18),
-                  grid_dot=(24, 62, 70), palette=None),
+    # Radar: a military green PPI scope with a turning sweep, targets in shades of green by altitude
+    "radar": dict(folder="BC250-Radar", bg=(2, 9, 4), dim=(50, 120, 70), mid=(90, 190, 110), value=(200, 255, 210),
+                  accent=(230, 255, 120), cold=(120, 255, 140), hot=(255, 190, 60), alert=(255, 70, 60), ink=(2, 9, 4),
+                  grid_dot=(14, 70, 28), palette=None),
 }
 SKIN_NAME = "phosphor"
 SKIN = SKINS[SKIN_NAME]
@@ -1765,10 +1765,11 @@ def nixie_theme(theme, title):
 # Radar artwork, map and theme
 # ---------------------------------------------------------------------------------------------------------------------
 RADAR = {}  # set by set_layout()
-RD_DISC, RD_RIM, RD_RING, RD_TICK = (4, 20, 26), (46, 100, 110), (24, 62, 70), (60, 120, 130)
-RD_COLOURS = dict(SWEEP=(120, 255, 210), LOW=(255, 160, 60), MID=(240, 220, 90), HIGH=(100, 220, 255),
-                  EMERGENCY=(255, 70, 60), TEXT=(235, 242, 242), LABEL=(110, 170, 178), DIM=(70, 110, 118),
-                  ROUTE=(255, 190, 90))
+RD_DISC, RD_RIM, RD_RING, RD_TICK = (2, 16, 6), (40, 140, 60), (14, 66, 28), (40, 130, 60)
+RD_LINE = (10, 42, 18)  # separators
+RD_COLOURS = dict(SWEEP=(150, 255, 160), LOW=(230, 255, 110), MID=(110, 255, 140), HIGH=(60, 205, 165),
+                  EMERGENCY=(255, 70, 60), TEXT=(200, 255, 210), LABEL=(90, 190, 110), DIM=(50, 120, 70),
+                  ROUTE=(230, 255, 110))
 OURAIRPORTS = "https://davidmegginson.github.io/ourairports-data/{}.csv"
 
 
@@ -1833,7 +1834,7 @@ def nice_step(km):
 
 def draw_scope(c, rings=True):
     cx, cy, r = RADAR["scope"]
-    c.d.ellipse((cx - r - 3, cy - r - 3, cx + r + 3, cy + r + 3), fill=(10, 30, 36))
+    c.d.ellipse((cx - r - 3, cy - r - 3, cx + r + 3, cy + r + 3), fill=(6, 26, 10))
     c.d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=RD_DISC, outline=RD_RIM, width=2)
     if not rings:
         return
@@ -1857,13 +1858,13 @@ def draw_scope(c, rings=True):
                 anchor="ms", glow=False)
     airports, runways = RADAR["map"]
     for (x1, y1), (x2, y2) in runways:
-        c.d.line((cx + x1 * k, cy - y1 * k, cx + x2 * k, cy - y2 * k), fill=(150, 165, 170), width=2)
+        c.d.line((cx + x1 * k, cy - y1 * k, cx + x2 * k, cy - y2 * k), fill=(90, 175, 110), width=2)
     for x, y, label, kind in airports:
         px, py = cx + x * k, cy - y * k
         if kind == "small_airport":
             c.d.point((px, py), fill=RD_TICK)
         else:
-            c.label(round(px) + 6, round(py) + 12, label, (90, 130, 138), glow=False)
+            c.label(round(px) + 6, round(py) + 12, label, (60, 140, 80), glow=False)
     c.d.line((cx - 4, cy, cx + 4, cy), fill=RD_TICK)  # the radar's position
     c.d.line((cx, cy - 4, cx, cy + 4), fill=RD_TICK)
 
@@ -1871,16 +1872,16 @@ def draw_scope(c, rings=True):
 def render_background_radar(title):
     c = Canvas()
     c.label(6, HEADER_BL, title, SKIN["value"], glow=False)
-    c.d.line((0, HEADER_H + 1, W, HEADER_H + 1), fill=(20, 44, 50))
+    c.d.line((0, HEADER_H + 1, W, HEADER_H + 1), fill=RD_LINE)
     draw_scope(c)
     rd = RADAR
     lx1, ly1, lx2, ly2 = rd["list"]
     if rd["list_columns"] == 1:  # (portrait has no room for the heading)
         c.label(lx1, ly1 + 10, "NEXT", RD_COLOURS["DIM"], glow=False)
-    c.d.line((rd["card"][0], rd["card"][3] + 2, rd["card"][2], rd["card"][3] + 2), fill=(20, 44, 50))
+    c.d.line((rd["card"][0], rd["card"][3] + 2, rd["card"][2], rd["card"][3] + 2), fill=RD_LINE)
     for label, (x, bl, _, _) in zip(("CPU", "GPU"), rd["stats"]):
         c.label(x, bl, label, RD_COLOURS["DIM"], glow=False)
-    c.d.line((rd["prompt_line"][0], rd["prompt_line"][1], rd["prompt_line"][2], rd["prompt_line"][1]), fill=(20, 44, 50))
+    c.d.line((rd["prompt_line"][0], rd["prompt_line"][1], rd["prompt_line"][2], rd["prompt_line"][1]), fill=RD_LINE)
     return c.finish()
 
 
@@ -1888,7 +1889,7 @@ def render_splash_radar(title, layer="full"):
     sl = SPLASH_LAYOUT
     c = Canvas()
     c.label(6, HEADER_BL, title, SKIN["value"], glow=False)
-    c.d.line((0, HEADER_H + 1, W, HEADER_H + 1), fill=(20, 44, 50))
+    c.d.line((0, HEADER_H + 1, W, HEADER_H + 1), fill=RD_LINE)
     draw_scope(c, rings=layer == "full")
     lx, lb = sl["logo"]
     c.label(lx, lb, LOGO, SKIN["value"], size=M if len(LOGO) * CH[M] <= sl["panel_w"] else S, glow=False)
@@ -1904,7 +1905,7 @@ def render_splash_radar(title, layer="full"):
 def radar_spec():
     rd = RADAR
     spec = {"LAT": round(rd["center"][0], 5), "LON": round(rd["center"][1], 5), "RANGE_KM": rd["km"], "REFRESH": 6,
-            "PERIOD": 4, "FPS": 8, "TAGS": 8, "FONT": FONT, "SCOPE": list(rd["scope"]), "CARD": list(rd["card"]),
+            "PERIOD": 5, "FPS": 8, "TRAIL": 0, "TILE": 10, "TAGS": 8, "FONT": FONT, "SCOPE": list(rd["scope"]), "CARD": list(rd["card"]),
             "CARD_ROWS": rd["card_rows"], "CARD_STYLE": rd["card_style"], "LIST": list(rd["list"]),
             "LIST_BL": rd["list_bl"], "LIST_STEP": 14, "LIST_ROWS": rd["list_rows"], "LIST_COLUMNS": rd["list_columns"],
             "COUNT": list(rd["count"]), "BACKGROUND_IMAGE": "background.png"}

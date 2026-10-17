@@ -8,12 +8,12 @@ bc250_splash:
   IMAGE: splash.png
   FONT: fusion-pixel/fusion-pixel-12px-monospaced-zh_hans.otf
   ALERT: 80
-  BRIGHT: 235, 242, 242
-  MID: 110, 170, 178
-  DIM: 70, 110, 118
-  AMBER: 255, 170, 60
+  BRIGHT: 200, 255, 210
+  MID: 90, 190, 110
+  DIM: 50, 120, 70
+  AMBER: 230, 255, 120
   ALERT_COLOR: 255, 70, 60
-  BG: 6, 12, 18
+  BG: 2, 9, 4
   ROW_BL: 104
   ROW_STEP: 16
   ROWS: 7
@@ -35,8 +35,10 @@ bc250_splash:
   LON: 2.5479
   RANGE_KM: 50
   REFRESH: 6
-  PERIOD: 4
+  PERIOD: 5
   FPS: 8
+  TRAIL: 0
+  TILE: 10
   TAGS: 8
   SCOPE: [158, 168, 148]
   CARD: [314, 22, 474, 132]
@@ -49,19 +51,19 @@ bc250_splash:
   LIST_COLUMNS: 1
   COUNT: [416, 12, 90]
   COLORS:
-    SWEEP: 120, 255, 210
-    LOW: 255, 160, 60
-    MID: 240, 220, 90
-    HIGH: 100, 220, 255
+    SWEEP: 150, 255, 160
+    LOW: 230, 255, 110
+    MID: 110, 255, 140
+    HIGH: 60, 205, 165
     EMERGENCY: 255, 70, 60
-    TEXT: 235, 242, 242
-    LABEL: 110, 170, 178
-    DIM: 70, 110, 118
-    ROUTE: 255, 190, 90
+    TEXT: 200, 255, 210
+    LABEL: 90, 190, 110
+    DIM: 50, 120, 70
+    ROUTE: 230, 255, 110
 display:
   DISPLAY_SIZE: '3.5"'
   DISPLAY_ORIENTATION: landscape
-  DISPLAY_RGB_LED: 110, 170, 178
+  DISPLAY_RGB_LED: 90, 190, 110
 static_images:
   BACKGROUND:
     PATH: background.png
@@ -82,7 +84,7 @@ STATS:
         HEIGHT: 24
         FONT: fusion-pixel/fusion-pixel-12px-monospaced-zh_hans.otf
         FONT_SIZE: 24
-        FONT_COLOR: 235, 242, 242
+        FONT_COLOR: 200, 255, 210
         BACKGROUND_IMAGE: background.png
         ALIGN: right
         ANCHOR: ra
@@ -98,7 +100,7 @@ STATS:
         HEIGHT: 12
         FONT: fusion-pixel/fusion-pixel-12px-monospaced-zh_hans.otf
         FONT_SIZE: 12
-        FONT_COLOR: 235, 242, 242
+        FONT_COLOR: 200, 255, 210
         BACKGROUND_IMAGE: background.png
         ALIGN: right
         ANCHOR: ra
@@ -109,10 +111,10 @@ STATS:
       COLD: 40
       HOT: 70
       ALERT: 80
-      COLD_COLOR: 100, 220, 255
-      HOT_COLOR: 255, 160, 60
+      COLD_COLOR: 120, 255, 140
+      HOT_COLOR: 255, 190, 60
       ALERT_COLOR: 255, 70, 60
-      INK: 6, 12, 18
+      INK: 2, 9, 4
       HEAT_TEXT:
         SHOW: True
         SHOW_UNIT: True
@@ -122,7 +124,7 @@ STATS:
         HEIGHT: 24
         FONT: fusion-pixel/fusion-pixel-12px-monospaced-zh_hans.otf
         FONT_SIZE: 24
-        FONT_COLOR: 235, 242, 242
+        FONT_COLOR: 200, 255, 210
         BACKGROUND_IMAGE: background.png
         ALIGN: left
         ANCHOR: la
@@ -131,10 +133,10 @@ STATS:
       COLD: 40
       HOT: 70
       ALERT: 80
-      COLD_COLOR: 100, 220, 255
-      HOT_COLOR: 255, 160, 60
+      COLD_COLOR: 120, 255, 140
+      HOT_COLOR: 255, 190, 60
       ALERT_COLOR: 255, 70, 60
-      INK: 6, 12, 18
+      INK: 2, 9, 4
       HEAT_TEXT:
         SHOW: True
         SHOW_UNIT: True
@@ -144,7 +146,7 @@ STATS:
         HEIGHT: 24
         FONT: fusion-pixel/fusion-pixel-12px-monospaced-zh_hans.otf
         FONT_SIZE: 24
-        FONT_COLOR: 235, 242, 242
+        FONT_COLOR: 200, 255, 210
         BACKGROUND_IMAGE: background.png
         ALIGN: left
         ANCHOR: la
@@ -159,7 +161,7 @@ STATS:
         HEIGHT: 24
         FONT: fusion-pixel/fusion-pixel-12px-monospaced-zh_hans.otf
         FONT_SIZE: 24
-        FONT_COLOR: 235, 242, 242
+        FONT_COLOR: 200, 255, 210
         BACKGROUND_IMAGE: background.png
         ALIGN: right
         ANCHOR: ra
@@ -168,8 +170,10 @@ STATS:
       LON: 2.5479
       RANGE_KM: 50
       REFRESH: 6
-      PERIOD: 4
+      PERIOD: 5
       FPS: 8
+      TRAIL: 0
+      TILE: 10
       TAGS: 8
       FONT: fusion-pixel/fusion-pixel-12px-monospaced-zh_hans.otf
       SCOPE: [158, 168, 148]
@@ -184,15 +188,15 @@ STATS:
       COUNT: [416, 12, 90]
       BACKGROUND_IMAGE: background.png
       COLORS:
-        SWEEP: 120, 255, 210
-        LOW: 255, 160, 60
-        MID: 240, 220, 90
-        HIGH: 100, 220, 255
+        SWEEP: 150, 255, 160
+        LOW: 230, 255, 110
+        MID: 110, 255, 140
+        HIGH: 60, 205, 165
         EMERGENCY: 255, 70, 60
-        TEXT: 235, 242, 242
-        LABEL: 110, 170, 178
-        DIM: 70, 110, 118
-        ROUTE: 255, 190, 90
+        TEXT: 200, 255, 210
+        LABEL: 90, 190, 110
+        DIM: 50, 120, 70
+        ROUTE: 230, 255, 110
     Bc250Prompt:
       AREA:
         X: 312
@@ -201,10 +205,10 @@ STATS:
         HEIGHT: 60
         BACKGROUND_IMAGE: background.png
       FONT: fusion-pixel/fusion-pixel-12px-monospaced-zh_hans.otf
-      BRIGHT: 235, 242, 242
-      MID: 110, 170, 178
-      DIM: 70, 110, 118
-      AMBER: 255, 170, 60
+      BRIGHT: 200, 255, 210
+      MID: 90, 190, 110
+      DIM: 50, 120, 70
+      AMBER: 230, 255, 120
       LABEL_BL: 272
       VALUE_BL: 294
       CMD_X: 314
@@ -219,7 +223,7 @@ STATS:
         last-session: LAST GAME
         idle: STANDBY
         idle-text: watching the sky
-      LABEL_COLOR: 110, 170, 178
+      LABEL_COLOR: 90, 190, 110
       COL_WORDS:
         SESSION: TIME
         PEAK C/G: PEAK
