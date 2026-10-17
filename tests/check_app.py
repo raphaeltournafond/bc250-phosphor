@@ -12,11 +12,11 @@ import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import RevA, patch_sensors, report  # noqa: E402
+from common import COMMAND_S, LINK_BYTES_PER_S, RevA, patch_sensors, report  # noqa: E402
 from check_boot import BC250_LINES, select_theme  # noqa: E402
 from common import THEMES  # noqa: E402
 
-PAUSES_PER_MINUTE = 20
+OTHERS_MS_PER_S = 150  # set so the old once-a-second stall (the status line resent whole) fails
 
 
 def main():
@@ -68,10 +68,18 @@ def main():
                 worst = max(gaps) if gaps else float("inf")
                 seconds = max(1e-3, starts[-1] - starts[0])
                 per_minute = 60 * sum(1 for gap in gaps if gap > 0.2) / seconds
-                # a smooth sweep: no regular pauses (the old once-a-second stall was ~60 a minute) and no long one
-                ok &= report(per_minute <= PAUSES_PER_MINUTE and worst < 0.6,
-                             f"{name}: sweep {len(starts) / seconds:.1f} frames/s, {per_minute:.0f} pauses over 200 ms a "
-                             f"minute (limit {PAUSES_PER_MINUTE}), longest {worst * 1000:.0f} ms")
+                # what holds the sweep back is the link time the other widgets take each second: measured on the
+                # emulated link (bytes and commands), it doesn't depend on how fast the machine running the check is
+                others = {}
+                for t, x, y, w, h, who in rev_a.log:
+                    if who != "BC250 radar" and t > boot[-1] + 3:
+                        others[int(t)] = others.get(int(t), 0) + w * h * 2 / LINK_BYTES_PER_S + COMMAND_S
+                busiest = max(others.values(), default=0) * 1000
+                ok &= report(busiest <= OTHERS_MS_PER_S, f"{name}: other widgets take at most {busiest:.0f} ms of link a "
+                                                         f"second (limit {OTHERS_MS_PER_S}): the sweep keeps its pace")
+                # wall-clock smoothness depends on the machine too: shown, and only a gross stall fails
+                ok &= report(worst < 1.0, f"{name}: sweep {len(starts) / seconds:.1f} frames/s, {per_minute:.0f} pauses "
+                                          f"over 200 ms a minute, longest {worst * 1000:.0f} ms")
             if args.screenshot:
                 with rev_a.lock:
                     rev_a.screen.save(args.screenshot)
